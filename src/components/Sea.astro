@@ -74,18 +74,31 @@ const { replay = false, gap = true } = Astro.props;
 </style>
 
 <script>
-  const copy = document.querySelector<HTMLButtonElement>('.copy');
-  copy?.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(copy.dataset.email!);
-      copy.textContent = 'Copied';
-    } catch {
-      copy.textContent = "Couldn't copy";
+  // The contact card and footer are part of every page, so wire up their buttons each time a page
+  // is swapped in.
+  function init() {
+    const copy = document.querySelector<HTMLButtonElement>('.copy');
+    if (copy && !copy.dataset.ready) {
+      copy.dataset.ready = '1';
+      copy.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(copy.dataset.email!);
+          copy.textContent = 'Copied';
+        } catch {
+          copy.textContent = "Couldn't copy";
+        }
+        setTimeout(() => (copy.textContent = 'Copy email'), 1600);
+      });
     }
-    setTimeout(() => (copy.textContent = 'Copy email'), 1600);
-  });
-  document.querySelector('.replay')?.addEventListener('click', () => {
-    scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
-    document.dispatchEvent(new Event('wave:intro'));
-  });
+    const replay = document.querySelector<HTMLButtonElement>('.replay');
+    if (replay && !replay.dataset.ready) {
+      replay.dataset.ready = '1';
+      replay.addEventListener('click', () => {
+        scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
+        document.dispatchEvent(new Event('wave:intro'));
+      });
+    }
+  }
+  document.addEventListener('astro:page-load', init);
+  init();
 </script>

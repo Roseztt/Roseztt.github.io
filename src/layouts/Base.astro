@@ -2,6 +2,7 @@
 import '@fontsource-variable/bricolage-grotesque';
 import '@fontsource-variable/manrope';
 import '../styles/global.css';
+import { ClientRouter } from 'astro:transitions';
 import Wave from '../components/Wave.astro';
 import { profile } from '../data/profile';
 
@@ -28,16 +29,19 @@ const initials = `${first[0]}${last?.[0] ?? ''}`;
 ---
 
 <!doctype html>
-<html lang="en">
+<html lang="en" transition:animate="none">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="icon" href={`${home}favicon.svg`} type="image/svg+xml" />
+    <!-- Links swap the page content in place instead of loading a whole new page, so the wave keeps
+         running through the wash-over (see Wave.astro). -->
+    <ClientRouter fallback="none" />
     <script is:inline define:vars={{ home }}>
-      // Runs before the page paints: pick the saved (or system) theme, and start with the screen
-      // covered by water if we arrived through a wash-over, or on the first visit to the home page.
+      // Runs before the page first paints: pick the saved (or system) theme, and on the first visit
+      // to the home page start with the screen covered by water (the intro).
       (function () {
         var root = document.documentElement, theme;
         try { theme = localStorage.getItem('theme'); } catch (e) {}
@@ -47,10 +51,7 @@ const initials = `${first[0]}${last?.[0] ?? ''}`;
         root.dataset.theme = theme;
         if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
         try {
-          if (sessionStorage.getItem('wash-in')) {
-            sessionStorage.removeItem('wash-in');
-            root.classList.add('wash-in');
-          } else if (location.pathname === home && !sessionStorage.getItem('intro-seen')) {
+          if (location.pathname === home && !sessionStorage.getItem('intro-seen')) {
             sessionStorage.setItem('intro-seen', '1');
             root.classList.add('wash-in', 'intro');
           }
@@ -59,7 +60,7 @@ const initials = `${first[0]}${last?.[0] ?? ''}`;
     </script>
   </head>
   <body data-wave={wave}>
-    <div id="intro-name" aria-hidden="true">{profile.name}<span class="dot">.</span></div>
+    <div id="intro-name" aria-hidden="true" transition:persist="intro-name">{profile.name}<span class="dot">.</span></div>
     <Wave />
     <header class="nav">
       <div class="nav-inner wrap">
@@ -130,10 +131,23 @@ const initials = `${first[0]}${last?.[0] ?? ''}`;
 
     <script>
       const root = document.documentElement;
-      document.querySelector('.theme')!.addEventListener('click', () => {
-        const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
-        root.dataset.theme = next;
-        try { localStorage.setItem('theme', next); } catch {}
+      const savedTheme = () => {
+        let t: string | null = null;
+        try { t = localStorage.getItem('theme'); } catch {}
+        return t === 'light' || t === 'dark' ? t : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      };
+      // A page swap replaces <html>'s attributes with the new page's, so put the theme back.
+      document.addEventListener('astro:after-swap', () => { root.dataset.theme = savedTheme(); });
+      // The header is part of each new page, so wire up its theme button every time.
+      document.addEventListener('astro:page-load', () => {
+        const btn = document.querySelector<HTMLButtonElement>('.theme');
+        if (!btn || btn.dataset.ready) return;
+        btn.dataset.ready = '1';
+        btn.addEventListener('click', () => {
+          const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+          root.dataset.theme = next;
+          try { localStorage.setItem('theme', next); } catch {}
+        });
       });
     </script>
   </body>

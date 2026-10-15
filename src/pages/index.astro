@@ -170,11 +170,11 @@ const tabs = [
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
-    padding-top: 110px;
-    padding-bottom: 70px;
+    padding-top: 96px;
+    padding-bottom: 100px;
   }
   .name {
-    font-size: clamp(64px, min(14vw, 19vh), 168px);
+    font-size: clamp(56px, min(14vw, 14vh), 168px);
     font-weight: 700;
     line-height: 0.92;
     letter-spacing: -0.045em;
@@ -294,21 +294,31 @@ const tabs = [
 </style>
 
 <script>
-  // Highlight the tab for the panel you're looking at.
-  const tabs = new Map([...document.querySelectorAll<HTMLAnchorElement>('.tabs a')].map((a) => [a.dataset.tab!, a]));
-  const seen = new Map<string, boolean>();
-  const io = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((e) => seen.set(e.target.id, e.isIntersecting));
-      const current = [...tabs.keys()].find((id) => seen.get(id));
-      tabs.forEach((a, id) => a.classList.toggle('active', id === current));
-      // On narrow screens the tab bar scrolls sideways; keep the active tab in view.
-      const active = tabs.get(current ?? ''), bar = active?.parentElement;
-      if (active && bar && bar.scrollWidth > bar.clientWidth) {
-        bar.scrollTo({ left: active.offsetLeft - (bar.clientWidth - active.offsetWidth) / 2, behavior: 'smooth' });
-      }
-    },
-    { rootMargin: '-45% 0px -50% 0px' },
-  );
-  tabs.forEach((_, id) => { const el = document.getElementById(id); if (el) io.observe(el); });
+  // Highlight the tab for the panel you're looking at. Pages are swapped in place by the client
+  // router, so this sets itself up whenever the home page appears and cleans up when it leaves.
+  let io: IntersectionObserver | undefined;
+  function init() {
+    const bar = document.querySelector<HTMLElement>('.tabs');
+    if (!bar || bar.dataset.ready) return;
+    bar.dataset.ready = '1';
+    const tabs = new Map([...bar.querySelectorAll<HTMLAnchorElement>('a')].map((a) => [a.dataset.tab!, a]));
+    const seen = new Map<string, boolean>();
+    io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((e) => seen.set(e.target.id, e.isIntersecting));
+        const current = [...tabs.keys()].find((id) => seen.get(id));
+        tabs.forEach((a, id) => a.classList.toggle('active', id === current));
+        // On narrow screens the tab bar scrolls sideways; keep the active tab in view.
+        const active = tabs.get(current ?? '');
+        if (active && bar.scrollWidth > bar.clientWidth) {
+          bar.scrollTo({ left: active.offsetLeft - (bar.clientWidth - active.offsetWidth) / 2, behavior: 'smooth' });
+        }
+      },
+      { rootMargin: '-45% 0px -50% 0px' },
+    );
+    tabs.forEach((_, id) => { const el = document.getElementById(id); if (el) io!.observe(el); });
+  }
+  document.addEventListener('astro:page-load', init);
+  document.addEventListener('astro:before-swap', () => { io?.disconnect(); io = undefined; });
+  init();
 </script>

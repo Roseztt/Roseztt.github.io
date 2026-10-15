@@ -119,35 +119,43 @@ const techs = [...new Set([...projects.flatMap((p) => p.tags), ...others.map((r)
 </style>
 
 <script>
-  const input = document.querySelector<HTMLInputElement>('.search input')!;
-  const filters = [...document.querySelectorAll<HTMLButtonElement>('.filter')];
-  const items = [...document.querySelectorAll<HTMLElement>('.item')];
-  const count = document.querySelector('.count')!;
-  const empty = document.querySelector<HTMLElement>('.empty')!;
-  let tech = '';
+  // Search and technology filter. Sets itself up whenever the Projects page appears (pages are
+  // swapped in place by the client router).
+  function init() {
+    const input = document.querySelector<HTMLInputElement>('.search input');
+    if (!input || input.dataset.ready) return;
+    input.dataset.ready = '1';
+    const filters = [...document.querySelectorAll<HTMLButtonElement>('.filter')];
+    const items = [...document.querySelectorAll<HTMLElement>('.item')];
+    const count = document.querySelector('.count')!;
+    const empty = document.querySelector<HTMLElement>('.empty')!;
+    let tech = '';
 
-  function apply() {
-    const q = input.value.trim().toLowerCase();
-    let shown = 0;
-    items.forEach((el) => {
-      const okTech = !tech || el.dataset.tech!.split('|').includes(tech);
-      const okText = !q || el.dataset.text!.includes(q) || el.dataset.tech!.includes(q);
-      el.hidden = !(okTech && okText);
-      if (!el.hidden) shown++;
-    });
-    // Hide a group heading when everything under it is filtered out.
-    document.querySelectorAll<HTMLElement>('.group-title').forEach((h) => {
-      const list = h.nextElementSibling!;
-      h.hidden = ![...list.children].some((c) => !(c as HTMLElement).hidden);
-    });
-    count.textContent = `${shown} project${shown === 1 ? '' : 's'}`;
-    empty.hidden = shown > 0;
-  }
-  input.addEventListener('input', apply);
-  filters.forEach((b) => b.addEventListener('click', () => {
-    tech = b.dataset.tech!;
-    filters.forEach((f) => f.classList.toggle('on', f === b));
+    function apply() {
+      const q = input!.value.trim().toLowerCase();
+      let shown = 0;
+      items.forEach((el) => {
+        const okTech = !tech || el.dataset.tech!.split('|').includes(tech);
+        const okText = !q || el.dataset.text!.includes(q) || el.dataset.tech!.includes(q);
+        el.hidden = !(okTech && okText);
+        if (!el.hidden) shown++;
+      });
+      // Hide a group heading when everything under it is filtered out.
+      document.querySelectorAll<HTMLElement>('.group-title').forEach((h) => {
+        const list = h.nextElementSibling!;
+        h.hidden = ![...list.children].some((c) => !(c as HTMLElement).hidden);
+      });
+      count.textContent = `${shown} project${shown === 1 ? '' : 's'}`;
+      empty.hidden = shown > 0;
+    }
+    input.addEventListener('input', apply);
+    filters.forEach((b) => b.addEventListener('click', () => {
+      tech = b.dataset.tech!;
+      filters.forEach((f) => f.classList.toggle('on', f === b));
+      apply();
+    }));
     apply();
-  }));
-  apply();
+  }
+  document.addEventListener('astro:page-load', init);
+  init();
 </script>
