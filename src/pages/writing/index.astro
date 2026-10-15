@@ -1,0 +1,45 @@
+---
+import { getCollection } from 'astro:content';
+import Base from '../../layouts/Base.astro';
+import Sea from '../../components/Sea.astro';
+import { profile } from '../../data/profile';
+
+const posts = (await getCollection('writing', ({ data }) => !data.draft))
+  .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
+const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+const base = import.meta.env.BASE_URL;
+---
+
+<Base title={`Writing — ${profile.name}`} description="Notes on what I'm learning and building.">
+  <header class="page-head wrap">
+    <p class="label">Writing</p>
+    <h1>Notes and posts<span class="dot">.</span></h1>
+    <p class="lead">A little of what I'm learning, building and thinking about.</p>
+  </header>
+
+  <div class="wrap">
+    <ul class="posts">
+      {posts.map((post) => (
+        <li>
+          <a class="tile" href={`${base}writing/${post.id}/`}>
+            <span class="label">{fmt(post.data.date)}</span>
+            <span class="title">{post.data.title}</span>
+            <span class="summary">{post.data.summary}</span>
+            <span class="read">Read post <span aria-hidden="true">→</span></span>
+          </a>
+        </li>
+      ))}
+    </ul>
+  </div>
+
+  <Sea />
+</Base>
+
+<style>
+  .posts { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+  .posts a { display: grid; gap: 10px; height: 100%; text-decoration: none; transition: transform 0.2s, border-color 0.2s; }
+  .posts a:hover { transform: translateY(-3px); border-color: var(--w-teal); }
+  .title { font-family: var(--font-display); font-size: 28px; font-weight: 650; line-height: 1.1; }
+  .summary { color: var(--ink-soft); }
+  .read { margin-top: 8px; font-weight: 600; }
+</style>

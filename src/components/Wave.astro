@@ -1,0 +1,584 @@
+---
+// The animated wave. It always rests at the bottom of the screen, in front of the cream page.
+// It's full height on the home page's first screen; once you scroll (or on inner pages, which set
+// data-wave="slim" on <body>) it sinks to a slim band so it barely covers the content. When the
+// element with id="shore" (the top of the <Sea>) comes up, the water rises with it and the page
+// continues underwater, with the sea's cards in front of the wave.
+// Clicking a link to another page washes the water over the screen first, and on the first
+// visit to the home page the water drains away to reveal the page (the intro).
+//
+// Pages switch with Astro's client router, which swaps the content in place: the canvas is kept
+// across swaps (transition:persist), so the wave keeps running through the whole wash-over.
+//
+// It's painted on a <canvas> rather than built from SVG elements: redrawing a canvas doesn't
+// change the page's structure, so browser extensions that watch the page for changes (autofill
+// tools, for example) have nothing to react to, and it stays smooth for everyone.
+---
+
+<canvas id="wave" aria-hidden="true" transition:persist="wave"></canvas>
+
+<style>
+  #wave {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 1;
+    pointer-events: none;
+  }
+  #wave.front { z-index: 60; }
+</style>
+
+<script>
+  const canvas = document.getElementById('wave') as HTMLCanvasElement;
+  const ctx = canvas.getContext('2d')!;
+  const root = document.documentElement;
+  // These belong to the current page, so they're looked up again after every page swap.
+  let shore = document.getElementById('shore');
+  let slim = document.body.dataset.wave === 'slim';
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const W = () => innerWidth, H = () => innerHeight;
+
+  // ---------- motion settings ----------
+  const SWELL = 7;          // s for one swell to rise and fall
+  const BREATHE = 11;       // s for the whole sea to slowly rise and settle
+  const ORBIT = 7;          // px each foam shape rolls around its spot
+  const OMEGA = (2 * Math.PI) / SWELL;
+  const MARGIN = 220;
+  const SPAN = Math.max(1800, screen.width * 1.1) + 2 * MARGIN;
+  const COVER_MS = 600, DRAIN_MS = 750;
+  const FOAM = 260;           // px of see-through water at the top of the sea, where the foam shows
+
+  let clock = 0, last = performance.now();
+  let wash = 0, swell = 0, shoreTop = 1e5, busy = false;
+  let tealBase = 80, paleBase = 150;
+  // How far the wave sinks below its full resting height while you scroll, leaving a slim band.
+  let sinkMax = 120, sink = 0;
+  const SINK_AFTER = 160; // px of scrolling on the home page before the wave has fully sunk
+
+  // Two slow swells crossing each other, so the surface heaves up and down in place.
+  function bob(x: number, phase: number) {
+    const k = (2 * Math.PI) / Math.max(W() * 0.9, 620);
+    return (11 + swell * 22) * Math.sin(k * x + OMEGA * clock + phase)
+      + (9 + swell * 10) * Math.sin(k * 0.7 * x - OMEGA * 0.8 * clock + phase * 1.3 + 2)
+      + 26 * (x / W())
+      + 5 * Math.sin((clock * 2 * Math.PI) / BREATHE);
+  }
+
+  // How far the water has risen at x (0 at rest, 1 = screen covered). The front rises as a
+  // rounded arch, and a soft crest bulges out ahead of the water as it climbs.
+  const ARCH = 0.55, PEAK = 0.4;
+  const smoothstep = (v: number) => { v = Math.max(0, Math.min(1, v)); return v * v * (3 - 2 * v); };
+  function lift(x: number, ahead = 0) {
+    if (wash <= 0) return 0;
+    const w = W(), p = Math.min(1, wash * (1 + ahead));
+    const lag = ARCH * ((x / w - PEAK) / (1 - PEAK)) ** 2;
+    const rise = (H() + 160) * smoothstep(p * (1 + ARCH) - lag);
+    const cx = w * (PEAK + (p - 0.5) * 0.6);
+    return rise + (70 + H() * 0.1) * Math.sin(Math.PI * p) * Math.exp(-(((x - cx) / (w * 0.32)) ** 2));
+  }
+  // Sunk to a slim band until the shore scrolls up, then the waterline rides just above the
+  // shore, moving exactly with the page.
+  const shift = () => Math.max(H() - shoreTop, -sink);
+  const tealTop = (x: number) => tealBase + bob(x, 0) + lift(x) + shift();
+  const paleTop = (x: number) => paleBase + bob(x, 0.6) + lift(x, 0.22) + shift();
+
+  // ---------- colors (from the CSS theme, re-read when you switch light/dark) ----------
+  const colors = { pale: '', mint: '', teal: '', edge: '', fleck: '', shadow: '', shadowAlpha: 0.24 };
+  function readColors() {
+    const css = getComputedStyle(root);
+    const v = (name: string) => css.getPropertyValue(name).trim();
+    colors.pale = v('--w-pale'); colors.mint = v('--w-mint'); colors.teal = v('--w-teal');
+    colors.edge = v('--w-edge'); colors.fleck = v('--w-fleck'); colors.shadow = v('--w-shadow');
+    colors.shadowAlpha = parseFloat(v('--w-shadow-opacity')) || 0.24;
+    forceDraw = true;
+  }
+  new MutationObserver(readColors).observe(root, { attributes: true, attributeFilter: ['data-theme'] });
+
+  // ---------- shapes ----------
+  type Shape = { x0: number; rx: number; ry: number; depth: number; rot: number };
+  function rand(seed: number) { let s = seed; return () => (s = (s * 9301 + 49297) % 233280) / 233280; }
+  type RowOpts = { gap: number; rx: number[]; ry: number[]; rot?: number[]; keep?: number };
+  // A row of ellipses spaced along the width.
+  function row(seed: number, o: RowOpts): Shape[] {
+    const r = rand(seed), n = Math.ceil(SPAN / o.gap), list: Shape[] = [];
+    for (let i = 0; i < n; i++) {
+      const s = {
+        x0: i * o.gap + (r() - 0.5) * o.gap * 0.6,
+        rx: o.rx[0] + r() * (o.rx[1] - o.rx[0]),
+        ry: o.ry[0] + r() * (o.ry[1] - o.ry[0]),
+        depth: 0,
+        rot: o.rot ? o.rot[0] + r() * (o.rot[1] - o.rot[0]) : 0,
+      };
+      if (r() < (o.keep ?? 1)) list.push(s);
+    }
+    return list;
+  }
+
+  // A foam streak: a chain of circles along a gentle curve, thick in the middle and thin at the
+  // ends. Streaks sit a fixed distance below the surface, so the foam stays a band along the top
+  // and the deep water stays plain.
+  type Streak = Shape & { len: number; rad: number; bend: number };
+  type StreakOpts = { gap: number; len: number[]; r: number[]; depth: number[]; rot: number[]; bend: number; rows?: number; rowGap?: number; keep?: number };
+  function streaks(seed: number, o: StreakOpts): Streak[] {
+    const r = rand(seed), n = Math.ceil(SPAN / o.gap), list: Streak[] = [];
+    for (let rowI = 0; rowI < (o.rows ?? 1); rowI++) for (let i = 0; i < n; i++) {
+      const s = {
+        x0: i * o.gap + (r() - 0.5) * o.gap * 0.7 + rowI * o.gap * 0.45,
+        depth: rowI * (o.rowGap ?? 0) + o.depth[0] + r() * (o.depth[1] - o.depth[0]),
+        len: o.len[0] + r() * (o.len[1] - o.len[0]),
+        rad: o.r[0] + r() * (o.r[1] - o.r[0]),
+        rx: 0, ry: 0,
+        rot: o.rot[0] + r() * (o.rot[1] - o.rot[0]),
+        bend: (r() - 0.5) * 2 * o.bend,
+      };
+      if (r() < (o.keep ?? 1)) list.push(s);
+    }
+    return list;
+  }
+
+  // ---------- blobby foam ("goo") ----------
+  // The soft, blobby foam comes from blurring a whole layer of shapes and keeping only where the
+  // blur is still fairly solid: nearby shapes melt into lumpy blobs with soft rounded edges. Doing
+  // that blur every frame is slow, so it's worked out once, when the page loads: each layer is
+  // blurred on a small grid and traced into outlines. Every frame then moves each outline point
+  // with the swell at its own spot, so the blobs ride the waves just like the original shapes did.
+  type Disc = { x: number; y: number; rx: number; ry: number; rot: number };
+  type Contour = { pts: Float32Array; minX: number; maxX: number };
+  function chainDiscs(s: Streak): Disc[] {
+    const k = Math.max(4, Math.round(s.len / (s.rad * 0.9))), c = Math.cos(s.rot * RAD), sn = Math.sin(s.rot * RAD), out: Disc[] = [];
+    for (let j = 0; j < k; j++) {
+      const t = j / (k - 1), lx = s.len * (t - 0.5), ly = s.bend * Math.sin(Math.PI * t);
+      const r = s.rad * (0.35 + 0.65 * Math.sin(Math.PI * (0.08 + 0.84 * t)));
+      out.push({ x: s.x0 + lx * c - ly * sn, y: s.depth + lx * sn + ly * c, rx: r, ry: r, rot: 0 });
+    }
+    return out;
+  }
+  const ellipseDisc = (s: Shape, y: number): Disc => ({ x: s.x0, y, rx: s.rx, ry: s.ry, rot: s.rot });
+  // Blur the shapes on a grid, then trace where the blur crosses `level` (marching squares).
+  // Outline points are (x across the layout, y below the layer's waterline).
+  function goo(discs: Disc[], sigma: number, level: number, cell: number): Contour[] {
+    if (!discs.length) return [];
+    const pad = sigma * 3;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const d of discs) {
+      const r = Math.max(d.rx, d.ry);
+      x0 = Math.min(x0, d.x - r); y0 = Math.min(y0, d.y - r); x1 = Math.max(x1, d.x + r); y1 = Math.max(y1, d.y + r);
+    }
+    x0 -= pad; y0 -= pad; x1 += pad; y1 += pad;
+    const nx = Math.ceil((x1 - x0) / cell) + 1, ny = Math.ceil((y1 - y0) / cell) + 1;
+    const grid = new Float32Array(nx * ny);
+    for (const d of discs) {
+      const r = Math.max(d.rx, d.ry), c = Math.cos(d.rot * RAD), sn = Math.sin(d.rot * RAD);
+      const i0 = Math.max(0, Math.floor((d.x - r - x0) / cell)), i1 = Math.min(nx - 1, Math.ceil((d.x + r - x0) / cell));
+      const j0 = Math.max(0, Math.floor((d.y - r - y0) / cell)), j1 = Math.min(ny - 1, Math.ceil((d.y + r - y0) / cell));
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        const px = x0 + i * cell - d.x, py = y0 + j * cell - d.y;
+        const u = (px * c + py * sn) / d.rx, v = (-px * sn + py * c) / d.ry;
+        if (u * u + v * v <= 1) grid[j * nx + i] = 1;
+      }
+    }
+    // Separable Gaussian blur.
+    const rad = Math.ceil((sigma * 3) / cell), kern = new Float32Array(rad * 2 + 1);
+    let sum = 0;
+    for (let i = -rad; i <= rad; i++) sum += kern[i + rad] = Math.exp(-((i * cell) ** 2) / (2 * sigma * sigma));
+    for (let i = 0; i < kern.length; i++) kern[i] /= sum;
+    const tmp = new Float32Array(nx * ny);
+    for (let j = 0; j < ny; j++) {
+      const row = j * nx;
+      for (let i = 0; i < nx; i++) {
+        let acc = 0;
+        const k0 = Math.max(-rad, -i), k1 = Math.min(rad, nx - 1 - i);
+        for (let k = k0; k <= k1; k++) acc += grid[row + i + k] * kern[k + rad];
+        tmp[row + i] = acc;
+      }
+    }
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+      let acc = 0;
+      const k0 = Math.max(-rad, -j), k1 = Math.min(rad, ny - 1 - j);
+      for (let k = k0; k <= k1; k++) acc += tmp[(j + k) * nx + i] * kern[k + rad];
+      grid[j * nx + i] = acc;
+    }
+    // Marching squares: one directed segment per crossing, so segments join into closed loops.
+    const at = (i: number, j: number) => grid[j * nx + i];
+    const V = nx * ny; // vertical edge ids start here
+    const pos = (id: number): [number, number] => {
+      const vert = id >= V, k = vert ? id - V : id, i = k % nx, j = (k - i) / nx;
+      const a = at(i, j), b = vert ? at(i, j + 1) : at(i + 1, j), t = (level - a) / (b - a);
+      return vert ? [x0 + i * cell, y0 + (j + t) * cell] : [x0 + (i + t) * cell, y0 + j * cell];
+    };
+    const next = new Map<number, number>();
+    for (let j = 0; j < ny - 1; j++) for (let i = 0; i < nx - 1; i++) {
+      const code = (at(i, j) > level ? 8 : 0) | (at(i + 1, j) > level ? 4 : 0) | (at(i + 1, j + 1) > level ? 2 : 0) | (at(i, j + 1) > level ? 1 : 0);
+      if (code === 0 || code === 15) continue;
+      const top = j * nx + i, bottom = (j + 1) * nx + i, left = V + j * nx + i, right = V + j * nx + i + 1;
+      switch (code) {
+        case 1: next.set(left, bottom); break;
+        case 2: next.set(bottom, right); break;
+        case 3: next.set(left, right); break;
+        case 4: next.set(right, top); break;
+        case 5: next.set(left, top); next.set(right, bottom); break;
+        case 6: next.set(bottom, top); break;
+        case 7: next.set(left, top); break;
+        case 8: next.set(top, left); break;
+        case 9: next.set(top, bottom); break;
+        case 10: next.set(top, right); next.set(bottom, left); break;
+        case 11: next.set(top, right); break;
+        case 12: next.set(right, left); break;
+        case 13: next.set(right, bottom); break;
+        case 14: next.set(bottom, left); break;
+      }
+    }
+    const out: Contour[] = [], used = new Set<number>();
+    for (const start of next.keys()) {
+      if (used.has(start)) continue;
+      const pts: number[] = [];
+      let id: number | undefined = start, minX = Infinity, maxX = -Infinity;
+      while (id !== undefined && !used.has(id)) {
+        used.add(id);
+        const [px, py] = pos(id);
+        pts.push(px, py);
+        minX = Math.min(minX, px); maxX = Math.max(maxX, px);
+        id = next.get(id);
+      }
+      const slim = simplify(pts, 0.35);
+      if (slim.length >= 6) out.push({ pts: new Float32Array(slim), minX, maxX });
+    }
+    return out;
+  }
+  // Drop outline points that don't change the shape by more than `tol` px (Ramer-Douglas-Peucker),
+  // so there are fewer points to move each frame.
+  function simplify(pts: number[], tol: number) {
+    const n = pts.length / 2;
+    if (n < 4) return pts;
+    const keep = new Uint8Array(n);
+    keep[0] = keep[n - 1] = 1;
+    const stack: [number, number][] = [[0, n - 1]];
+    while (stack.length) {
+      const [a, b] = stack.pop()!;
+      const ax = pts[a * 2], ay = pts[a * 2 + 1], bx = pts[b * 2], by = pts[b * 2 + 1];
+      const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy) || 1;
+      let worst = -1, far = 0;
+      for (let i = a + 1; i < b; i++) {
+        const d = Math.abs((pts[i * 2] - ax) * dy - (pts[i * 2 + 1] - ay) * dx) / len;
+        if (d > far) { far = d; worst = i; }
+      }
+      if (far > tol && worst > 0) { keep[worst] = 1; stack.push([a, worst], [worst, b]); }
+    }
+    const out: number[] = [];
+    for (let i = 0; i < n; i++) if (keep[i]) out.push(pts[i * 2], pts[i * 2 + 1]);
+    return out;
+  }
+
+  // Each shape stays near its spot and rolls in a small loop with the swell; `layer` offsets the
+  // loop's timing per layer so the layers don't move in lockstep.
+  const orbitAt = (s: Shape, layer: number) => OMEGA * clock + s.x0 * 0.011 + layer * 2;
+  const xOf = (s: Shape, layer: number) => (s.x0 % SPAN) - MARGIN + ORBIT * Math.cos(orbitAt(s, layer));
+  const yOrbit = (s: Shape, layer: number) => ORBIT * 0.6 * Math.sin(orbitAt(s, layer));
+  const RAD = Math.PI / 180;
+
+  // The foam and teal surfaces are each one shape: the wavy body plus round humps along its top,
+  // blended with a smooth minimum so the humps melt into the body (the soft, blobby look).
+  const STEP = 6;   // px between outline points
+  const BLEND = 44; // px over which humps melt into the body and into each other
+  // Smooth minimum (smaller y = higher on screen), rounding the joins between shapes.
+  function smin(a: number, b: number) {
+    const k = Math.max(BLEND - Math.abs(a - b), 0) / BLEND;
+    return Math.min(a, b) - k * k * BLEND * 0.25;
+  }
+  let ys = new Float64Array(0);
+  // Fills `ys` with the outline's height at every STEP px across the screen.
+  function outline(topFn: (x: number) => number, list: Shape[], layer: number, rise: number) {
+    const w = W(), h = H(), n = Math.ceil((w + 120) / STEP) + 1;
+    if (ys.length !== n) ys = new Float64Array(n);
+    for (let i = 0; i < n; i++) ys[i] = h - topFn(-60 + i * STEP) + 40;
+    for (const s of list) {
+      const hx = xOf(s, layer);
+      const hy = h - topFn(hx) + s.ry * rise + yOrbit(s, layer);
+      const i0 = Math.max(0, Math.ceil((hx - s.rx + 60) / STEP)), i1 = Math.min(n - 1, Math.floor((hx + s.rx + 60) / STEP));
+      for (let i = i0; i <= i1; i++) {
+        const u = (-60 + i * STEP - hx) / s.rx;
+        ys[i] = smin(ys[i], hy - s.ry * Math.sqrt(Math.max(0, 1 - u * u)));
+      }
+    }
+    // A few smoothing passes round off the dips where two humps meet, like the original blur did.
+    for (let pass = 0; pass < 5; pass++) {
+      let prev = ys[0];
+      for (let i = 1; i < n - 1; i++) { const cur = ys[i]; ys[i] = (prev + cur * 2 + ys[i + 1]) / 4; prev = cur; }
+    }
+    let top = Infinity;
+    for (let i = 0; i < n; i++) top = Math.min(top, ys[i]);
+    return top;
+  }
+  function fillOutline(color: string) {
+    const h = H(), n = ys.length;
+    ctx.beginPath();
+    ctx.moveTo(-60, h + 300);
+    for (let i = 0; i < n; i++) ctx.lineTo(-60 + i * STEP, ys[i]);
+    ctx.lineTo(-60 + (n - 1) * STEP, h + 300);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+  // The shadow cast up onto the page: thin bands from the foam's edge to a little above it. They
+  // overlap, so it's darkest right at the edge and fades out upward, like a soft blurred shadow.
+  const SHADOW = [1.5, 3, 4.5, 6, 8, 10, 12, 14.5, 17, 20, 23, 26.5, 30, 34, 38.5, 43];
+  function fillShadow() {
+    const n = ys.length;
+    ctx.fillStyle = colors.shadow;
+    ctx.globalAlpha = colors.shadowAlpha * 0.055;
+    for (const dy of SHADOW) {
+      ctx.beginPath();
+      for (let i = 0; i < n; i += 2) (i ? ctx.lineTo : ctx.moveTo).call(ctx, -60 + i * STEP, ys[i] - dy);
+      for (let i = n - 1 - ((n - 1) % 2); i >= 0; i -= 2) ctx.lineTo(-60 + i * STEP, ys[i]);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+  // Ellipses of one color, batched into a single fill.
+  function fillEllipses(list: Shape[], layer: number, color: string, place: (s: Shape, x: number) => number, dx = 0) {
+    ctx.beginPath();
+    for (const s of list) {
+      const x = xOf(s, layer) + dx, y = place(s, x) + yOrbit(s, layer);
+      ctx.moveTo(x + s.rx * Math.cos(s.rot * RAD), y + s.rx * Math.sin(s.rot * RAD));
+      ctx.ellipse(x, y, s.rx, s.ry, s.rot * RAD, 0, Math.PI * 2);
+    }
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+  // The waterline heights across the screen, sampled once per frame so each outline point can
+  // look up the wave height at its own x.
+  const SURF_STEP = 8, SURF_PAD = 300;
+  let tealLine = new Float32Array(0), midLine = new Float32Array(0);
+  function sampleSurfaces() {
+    const n = Math.ceil((W() + SURF_PAD * 2) / SURF_STEP) + 2, h = H();
+    if (tealLine.length !== n) { tealLine = new Float32Array(n); midLine = new Float32Array(n); }
+    for (let i = 0; i < n; i++) {
+      const x = -SURF_PAD + i * SURF_STEP, t = tealTop(x);
+      tealLine[i] = h - t;
+      midLine[i] = h - (t + paleTop(x)) / 2 - 6;
+    }
+  }
+  function lineAt(line: Float32Array, x: number) {
+    const f = (x + SURF_PAD) / SURF_STEP, i = Math.max(0, Math.min(line.length - 2, Math.floor(f))), t = Math.min(1, Math.max(0, f - i));
+    return line[i] + (line[i + 1] - line[i]) * t;
+  }
+  // Draw a layer's outlines: each point rolls in its own small loop with the swell and rides the
+  // waterline at its own x.
+  function fillGoo(list: Contour[], layer: number, color: string, line: Float32Array, dx = 0, dy = 0) {
+    const w = W(), base = -MARGIN + dx, phase = OMEGA * clock + layer * 2;
+    ctx.beginPath();
+    for (const c of list) {
+      if (c.maxX + base + ORBIT < -40 || c.minX + base - ORBIT > w + 40) continue;
+      const p = c.pts;
+      for (let k = 0; k < p.length; k += 2) {
+        const ph = phase + p[k] * 0.011;
+        const x = p[k] + base + ORBIT * Math.cos(ph);
+        const y = lineAt(line, x - dx) + p[k + 1] + dy + ORBIT * 0.6 * Math.sin(ph);
+        k ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+      }
+      ctx.closePath();
+    }
+    ctx.fillStyle = color;
+    ctx.fill('evenodd');
+  }
+
+  const paleHumps = row(3, { gap: 95, rx: [55, 95], ry: [45, 75] });
+  const mint = row(5, { gap: 170, rx: [40, 85], ry: [12, 22], rot: [-14, -4], keep: 0.8 });
+  const isles = row(9, { gap: 210, rx: [12, 26], ry: [7, 13], rot: [-25, 10], keep: 0.7 });
+  const tealHumps = row(13, { gap: 120, rx: [55, 100], ry: [40, 70] });
+  // Every third teal hump gets a dark-blue copy just above it, which peeks out as a crescent line.
+  const edgeHumps = tealHumps.filter((_, i) => i % 3 === 0);
+  const bays = streaks(31, { gap: 260, len: [100, 200], r: [13, 22], depth: [12, 28], rot: [-14, -2], bend: 18 });
+  const chans = streaks(17, { gap: 170, len: [60, 160], r: [8, 14], depth: [45, 75], rows: 2, rowGap: 85, rot: [-16, -3], bend: 12 });
+  const flecks = streaks(21, { gap: 130, len: [22, 55], r: [3.5, 6], depth: [30, 70], rows: 2, rowGap: 70, rot: [-20, -4], bend: 4, keep: 0.8 });
+
+  // The blobby outlines, built once. Blur sizes match the original filters: 14px for the big foam
+  // and mint patches, 5px for the small flecks and teal islands.
+  const foamGoo = goo([...bays, ...chans].flatMap(chainDiscs), 14, 0.445, 3);
+  // Every other channel also gets a dark-blue copy, drawn just below it, which shows as a line
+  // along its underside.
+  const foamUnderGoo = goo(chans.filter((_, i) => i % 2 === 0).flatMap(chainDiscs), 14, 0.445, 3);
+  const fleckGoo = goo(flecks.flatMap(chainDiscs), 5, 0.417, 1.5);
+  const mintGoo = goo(mint.map((m) => ellipseDisc(m, 0)), 14, 0.445, 3);
+  const isleGoo = goo(isles.map((m) => ellipseDisc(m, -30 - m.rx * 0.4)), 5, 0.417, 1.5);
+
+  let dpr = 1, forceDraw = true;
+  function layout() {
+    tealBase = Math.max(45, Math.min(85, H() * 0.1));
+    paleBase = tealBase + Math.max(42, Math.min(75, H() * 0.09));
+    sinkMax = paleBase - 25;
+    dpr = Math.min(2, devicePixelRatio || 1);
+    canvas.width = Math.round(W() * dpr);
+    canvas.height = Math.round(H() * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    forceDraw = true;
+  }
+
+  function draw() {
+    const h = H();
+    ctx.clearRect(0, 0, W(), h);
+    outline(paleTop, paleHumps, 1, 0.55);
+    fillShadow();
+    fillOutline(colors.pale);
+    sampleSurfaces();
+    fillGoo(mintGoo, 1.05, colors.mint, midLine);
+    fillGoo(isleGoo, 1.08, colors.teal, tealLine);
+    fillEllipses(edgeHumps, 1.12, colors.edge, (s, x) => h - tealTop(x + 1) + s.ry * 0.6 - 3, -1);
+    outline(tealTop, tealHumps, 1.12, 0.6);
+    fillOutline(colors.teal);
+    fillGoo(foamUnderGoo, 1.18, colors.edge, tealLine, 2, 4);
+    fillGoo(foamGoo, 1.18, colors.pale, tealLine);
+    fillGoo(fleckGoo, 1.28, colors.fleck, tealLine);
+  }
+
+  let pendingDrain = root.classList.contains('wash-in');
+  if (pendingDrain) { wash = 1; canvas.classList.add('front'); }
+  const INTRO_HOLD = 900; // ms the name shows on the water before it drains (first visit only)
+
+  // A new page does a burst of one-off work (fonts, layout, first paint), which can freeze a few
+  // frames. Keep the screen covered until that's done, so the drain plays on a calm page.
+  const HOLD_MIN = 0;     // ms the water always stays over a new page
+  const HOLD_MAX = 600;   // ms it waits at most for the page to calm down
+  const CALM_FRAMES = 3;  // smooth frames in a row that count as "calm"
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  async function settled() {
+    const start = performance.now();
+    const loaded = document.readyState === 'complete' ? Promise.resolve() : new Promise((r) => addEventListener('load', r, { once: true }));
+    await Promise.race([Promise.all([loaded, document.fonts?.ready]), sleep(HOLD_MAX)]);
+    // Then wait for a run of smooth frames, and at least HOLD_MIN overall.
+    await new Promise<void>((res) => {
+      let calm = 0, prev = performance.now();
+      const check = (t: number) => {
+        calm = t - prev < 20 ? calm + 1 : 0;
+        prev = t;
+        const waited = t - start;
+        (calm >= CALM_FRAMES && waited >= HOLD_MIN) || waited > HOLD_MAX ? res() : requestAnimationFrame(check);
+      };
+      requestAnimationFrame(check);
+    });
+  }
+
+  // At rest the swell is slow, so 60 frames a second looks the same as 120 (and stays smooth next
+  // to the browser's own scrolling); draw every frame while scrolling, sinking or washing over.
+  const IDLE_MS = 1000 / 60;
+  let lastDraw = -Infinity, lastScroll = NaN, wasHidden = false;
+
+  function frame(now: number) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    if (!reduce) clock += dt;
+    // No shore on the page: keep the water well below the screen (it still covers for wash-overs).
+    shoreTop = shore ? shore.getBoundingClientRect().top : H() + 4000;
+    // Ease the wave down to its slim band as you scroll, and back up at the top of the home page.
+    const sinkTarget = slim ? sinkMax : sinkMax * Math.min(1, scrollY / SINK_AFTER);
+    sink += (sinkTarget - sink) * Math.min(1, dt * 7);
+
+    // Skip drawing once the foam band has scrolled off the top: the sea's solid background
+    // covers everything below it.
+    const hidden = wash === 0 && shoreTop + FOAM < 0;
+    if (hidden) {
+      if (!wasHidden) ctx.clearRect(0, 0, W(), H());
+    } else {
+      const moving = wash > 0 || scrollY !== lastScroll || Math.abs(sinkTarget - sink) > 0.5;
+      if (forceDraw || moving || now - lastDraw >= IDLE_MS - 2) {
+        lastDraw = now;
+        forceDraw = false;
+        draw();
+      }
+    }
+    wasHidden = hidden;
+    lastScroll = scrollY;
+
+    // Arrived via a wash-over (or the intro): the cover overlay came from the page head; now that
+    // the wave has drawn a covered frame, remove the overlay and drain the water away.
+    if (pendingDrain) {
+      pendingDrain = false;
+      root.classList.remove('wash-in');
+      const intro = root.classList.contains('intro');
+      const shownAt = performance.now();
+      settled().then(async () => {
+        if (intro) {
+          await sleep(Math.max(0, INTRO_HOLD - (performance.now() - shownAt)));
+          root.classList.remove('intro');
+        }
+        drain();
+      });
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- wash-over between pages ----------
+  const ease = (x: number) => -(Math.cos(Math.PI * x) - 1) / 2;
+  // Only the middle of the wash is visible: below about 0.14 the water hasn't climbed past its
+  // resting band, and above about 0.76 the screen is already fully covered (the same at every
+  // screen size). Spend most of the animation in that visible range and hop quickly through the
+  // ends, so there's no dead time on a covered screen before or after switching pages.
+  const VIS_LO = 0.14, VIS_HI = 0.76;
+  function visible(e: number) {
+    if (e < 0.08) return (e / 0.08) * VIS_LO;
+    if (e > 0.92) return VIS_HI + ((e - 0.92) / 0.08) * (1 - VIS_HI);
+    return VIS_LO + ((e - 0.08) / 0.84) * (VIS_HI - VIS_LO);
+  }
+  function tween(fn: (e: number, k: number) => void, ms: number) {
+    return new Promise<void>((res) => {
+      const start = performance.now();
+      const step = (n: number) => {
+        const k = Math.min(1, (n - start) / ms);
+        fn(ease(k), k);
+        k < 1 ? requestAnimationFrame(step) : res();
+      };
+      requestAnimationFrame(step);
+    });
+  }
+  let covering: Promise<void> | null = null;
+  function cover() {
+    canvas.classList.add('front');
+    covering ??= tween((e, k) => { wash = visible(e); swell = Math.sin(k * Math.PI); }, COVER_MS);
+    return covering;
+  }
+  async function drain() {
+    canvas.classList.add('front');
+    await tween((e, k) => { wash = visible(1 - e); swell = Math.sin(k * Math.PI); }, DRAIN_MS);
+    wash = 0; swell = 0; busy = false; covering = null;
+    canvas.classList.remove('front');
+  }
+
+  // Page switches (Astro's client router). The router fetches the next page while the water rises,
+  // swaps the content once both are done, and then the water drains over the new page.
+  let navigating = false;
+  document.addEventListener('astro:before-preparation', (ev) => {
+    if (reduce) return;
+    navigating = true;
+    busy = true;
+    const load = ev.loader;
+    ev.loader = async () => { await Promise.all([cover(), load()]); };
+  });
+  document.addEventListener('astro:after-swap', () => {
+    shore = document.getElementById('shore');
+    slim = document.body.dataset.wave === 'slim';
+    sink = slim ? sinkMax : 0;
+    forceDraw = true;
+  });
+  document.addEventListener('astro:page-load', () => {
+    if (!navigating) return;
+    navigating = false;
+    settled().then(drain);
+  });
+  // "Replay the intro": cover the screen, show the name on the water, then drain again.
+  document.addEventListener('wave:intro', () => {
+    if (busy || reduce) return;
+    busy = true;
+    root.classList.add('intro');
+    cover().then(() => setTimeout(() => { root.classList.remove('intro'); drain(); }, INTRO_HOLD));
+  });
+  // Coming back with the browser's back button can restore this page mid-wash; drain it.
+  addEventListener('pageshow', (e) => { if (e.persisted && wash > 0) drain(); });
+
+  addEventListener('resize', layout);
+  readColors();
+  layout();
+  if (slim) sink = sinkMax;
+  requestAnimationFrame(frame);
+</script>

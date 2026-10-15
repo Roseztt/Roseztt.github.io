@@ -1,0 +1,103 @@
+---
+import Base from '../layouts/Base.astro';
+import Sea from '../components/Sea.astro';
+import { profile, about, education, skills } from '../data/profile';
+---
+
+<Base title={`About — ${profile.name}`} description={about.story[0]}>
+  <header class="page-head wrap">
+    <p class="label">About</p>
+    <h1>Hi, I'm {profile.name.split(' ')[0]}<span class="dot">.</span></h1>
+    <p class="lead">{profile.tagline}</p>
+  </header>
+
+  <div class="about wrap">
+    <section class="tile story">
+      <p class="label">My story</p>
+      {about.story.map((p) => <p>{p}</p>)}
+    </section>
+
+    <aside class="tile facts">
+      <dl>
+        {about.facts.map((f) => (
+          <div>
+            <dt class="label">{f.label}</dt>
+            <dd>{f.value}</dd>
+          </div>
+        ))}
+      </dl>
+      <div class="elsewhere">
+        <a class="arrow-link" href={profile.linkedin} target="_blank" rel="noopener">LinkedIn <span aria-hidden="true">↗</span></a>
+        <a class="arrow-link" href={profile.github} target="_blank" rel="noopener">GitHub <span aria-hidden="true">↗</span></a>
+      </div>
+    </aside>
+
+    <section class="tile education">
+      <p class="label">Education</p>
+      <div class="edu-row">
+        <div>
+          <h2>{education.school}</h2>
+          <p class="edu-degree">{education.degree} · {education.place}</p>
+        </div>
+        <div class="edu-side">
+          <p><strong>{education.gpa}</strong> GPA</p>
+          <p>{education.dates}</p>
+        </div>
+      </div>
+      <p class="label sub">Coursework</p>
+      <ul class="chips">{education.coursework.map((c) => <li>{c}</li>)}</ul>
+    </section>
+
+    <section class="tile toolkit">
+      <p class="label">Toolkit</p>
+      <div class="tool-groups">
+        {skills.map((s) => (
+          <div>
+            <h3>{s.label}</h3>
+            <ul class="chips">{s.items.map((i) => <li>{i}</li>)}</ul>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    {about.interests.length > 0 && (
+      <section class="tile interests">
+        <p class="label">Beyond the code</p>
+        <ul>
+          {about.interests.map((i) => (
+            <li>
+              <h3>{i.title}</h3>
+              <p>{i.text}</p>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
+  </div>
+
+  <Sea />
+</Base>
+
+<style>
+  .about { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 18px; }
+  .story, .education, .toolkit, .interests { grid-column: 1 / -1; }
+  .story { grid-column: 1; display: grid; gap: 16px; font-size: 18.5px; line-height: 1.75; }
+  .facts dl { margin: 0; display: grid; gap: 16px; }
+  .facts dd { margin: 4px 0 0; font-weight: 600; font-size: 18px; }
+  .elsewhere { display: flex; flex-wrap: wrap; gap: 10px 22px; margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--rule); }
+  .edu-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; margin-top: 14px; }
+  .education h2 { font-size: clamp(28px, 4vw, 38px); }
+  .edu-degree { margin-top: 6px; font-weight: 600; }
+  .edu-side { text-align: right; color: var(--ink-soft); }
+  .edu-side strong { color: var(--ink); font-size: 22px; font-family: var(--font-display); }
+  .sub { margin: 24px 0 12px; }
+  .tool-groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; margin-top: 16px; }
+  .tool-groups h3 { font-size: 20px; margin-bottom: 12px; }
+  .interests ul { list-style: none; margin: 16px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; }
+  .interests h3 { font-size: 20px; }
+  .interests p { margin-top: 6px; color: var(--ink-soft); }
+  @media (max-width: 760px) {
+    .about, .tool-groups { grid-template-columns: minmax(0, 1fr); }
+    .edu-side { text-align: left; }
+  }
+</style>

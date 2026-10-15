@@ -1,0 +1,161 @@
+---
+import Base from '../layouts/Base.astro';
+import Sea from '../components/Sea.astro';
+import { profile, projects } from '../data/profile';
+import { getRepos } from '../data/github';
+
+const repos = await getRepos();
+const featuredRepos = new Set(projects.map((p) => p.repo).filter(Boolean));
+const repoUrl = (name?: string) => (name ? repos.find((r) => r.name === name)?.url ?? `${profile.github}/${name}` : undefined);
+const others = repos.filter((r) => !featuredRepos.has(r.name));
+const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+const prettyName = (n: string) => n.replace(/[-_]+/g, ' ');
+
+// Everything the filter can match on, lowercase.
+const techs = [...new Set([...projects.flatMap((p) => p.tags), ...others.map((r) => r.language).filter(Boolean)])].sort();
+---
+
+<Base title={`Projects — ${profile.name}`} description="Things I've built, from RAG assistants to datacenter tools.">
+  <header class="page-head wrap">
+    <p class="label">Projects</p>
+    <h1>Things I've built<span class="dot">.</span></h1>
+    <p class="lead">Featured work first, then everything else from my GitHub. Search by name, description or technology.</p>
+  </header>
+
+  <div class="wrap">
+    <div class="tools tile">
+      <label class="search">
+        <span class="sr-only">Search projects</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
+        <input type="search" placeholder="RAG, Swift, FastAPI…" autocomplete="off" />
+      </label>
+      <div class="filters" role="group" aria-label="Filter by technology">
+        <button type="button" class="filter on" data-tech="">All</button>
+        {techs.map((t) => <button type="button" class="filter" data-tech={t.toLowerCase()}>{t}</button>)}
+      </div>
+      <p class="count" aria-live="polite"></p>
+    </div>
+
+    <h2 class="group-title">Featured</h2>
+    <ol class="featured">
+      {projects.map((p, i) => (
+        <li class="tile item" id={p.slug} data-tech={p.tags.join('|').toLowerCase()} data-text={`${p.title} ${p.summary} ${p.points.join(' ')}`.toLowerCase()}>
+          <p class="num">{String(i + 1).padStart(2, '0')}</p>
+          <div>
+            <h3>{p.title}</h3>
+            <p class="summary">{p.summary}</p>
+            {p.points.length > 0 && <ul class="points">{p.points.map((pt) => <li>{pt}</li>)}</ul>}
+            <ul class="chips">{p.tags.map((t) => <li>{t}</li>)}</ul>
+            {p.repo && (
+              <a class="arrow-link view" href={repoUrl(p.repo)} target="_blank" rel="noopener">View on GitHub <span aria-hidden="true">↗</span></a>
+            )}
+          </div>
+        </li>
+      ))}
+    </ol>
+
+    {others.length > 0 && (
+      <>
+        <h2 class="group-title">More on GitHub</h2>
+        <ul class="more">
+          {others.map((r) => (
+            <li class="item" data-tech={r.language.toLowerCase()} data-text={`${r.name} ${prettyName(r.name)} ${r.description}`.toLowerCase()}>
+              <a class="tile repo" href={r.url} target="_blank" rel="noopener">
+                <span class="repo-top">
+                  <span class="repo-name">{r.name}</span>
+                  <span aria-hidden="true">↗</span>
+                </span>
+                {r.description && <span class="repo-desc">{r.description}</span>}
+                <span class="repo-meta">{[r.language, `updated ${fmt(r.updated)}`].filter(Boolean).join(' · ')}</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </>
+    )}
+    <p class="empty" hidden>No projects match that yet.</p>
+  </div>
+
+  <Sea />
+</Base>
+
+<style>
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .tools { display: grid; gap: 16px; padding: 20px; }
+  .search { display: flex; align-items: center; gap: 10px; padding: 0 16px; height: 50px; border-radius: 14px; border: 1px solid var(--rule); background: var(--bg); }
+  .search svg { width: 18px; height: 18px; flex: none; fill: none; stroke: var(--ink-soft); stroke-width: 2; stroke-linecap: round; }
+  .search input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; font: inherit; color: inherit; }
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; }
+  .filter { font: inherit; font-size: 13.5px; font-weight: 600; color: inherit; padding: 5px 13px; border-radius: 999px; border: 1px solid var(--rule); background: transparent; cursor: pointer; }
+  .filter.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .count { font-size: 14px; color: var(--ink-soft); }
+
+  .group-title { font-size: 28px; margin: 44px 0 16px; }
+  .featured, .more { list-style: none; margin: 0; padding: 0; }
+  .featured { display: grid; gap: 16px; }
+  .featured .tile { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 20px; scroll-margin-top: 100px; }
+  .num { font-family: var(--font-display); font-size: 44px; font-weight: 600; line-height: 1; letter-spacing: -0.03em; color: var(--ink-soft); }
+  .featured h3 { font-size: clamp(26px, 3.5vw, 34px); }
+  .summary { margin-top: 10px; max-width: 44em; color: var(--ink-soft); }
+  .points { margin: 14px 0 0; padding-left: 18px; display: grid; gap: 6px; max-width: 46em; }
+  .featured .chips { margin-top: 18px; }
+  .view { margin-top: 16px; }
+  .featured :target { border-color: var(--w-teal); }
+
+  .more { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+  .repo { display: grid; gap: 8px; height: 100%; padding: 22px; text-decoration: none; transition: transform 0.2s, border-color 0.2s; }
+  .repo:hover { transform: translateY(-3px); border-color: var(--w-teal); }
+  .repo-top { display: flex; justify-content: space-between; gap: 12px; }
+  .repo-name { font-family: var(--font-display); font-weight: 600; font-size: 20px; overflow-wrap: anywhere; }
+  .repo-desc { color: var(--ink-soft); font-size: 15px; line-height: 1.6; }
+  .repo-meta { margin-top: auto; font-size: 13.5px; color: var(--ink-soft); font-weight: 600; }
+  .empty { margin-top: 24px; color: var(--ink-soft); }
+  .item[hidden], .group-title[hidden] { display: none; }
+
+  @media (max-width: 640px) {
+    .featured .tile { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+    .num { font-size: 30px; }
+  }
+</style>
+
+<script>
+  // Search and technology filter. Sets itself up whenever the Projects page appears (pages are
+  // swapped in place by the client router).
+  function init() {
+    const input = document.querySelector<HTMLInputElement>('.search input');
+    if (!input || input.dataset.ready) return;
+    input.dataset.ready = '1';
+    const filters = [...document.querySelectorAll<HTMLButtonElement>('.filter')];
+    const items = [...document.querySelectorAll<HTMLElement>('.item')];
+    const count = document.querySelector('.count')!;
+    const empty = document.querySelector<HTMLElement>('.empty')!;
+    let tech = '';
+
+    function apply() {
+      const q = input!.value.trim().toLowerCase();
+      let shown = 0;
+      items.forEach((el) => {
+        const okTech = !tech || el.dataset.tech!.split('|').includes(tech);
+        const okText = !q || el.dataset.text!.includes(q) || el.dataset.tech!.includes(q);
+        el.hidden = !(okTech && okText);
+        if (!el.hidden) shown++;
+      });
+      // Hide a group heading when everything under it is filtered out.
+      document.querySelectorAll<HTMLElement>('.group-title').forEach((h) => {
+        const list = h.nextElementSibling!;
+        h.hidden = ![...list.children].some((c) => !(c as HTMLElement).hidden);
+      });
+      count.textContent = `${shown} project${shown === 1 ? '' : 's'}`;
+      empty.hidden = shown > 0;
+    }
+    input.addEventListener('input', apply);
+    filters.forEach((b) => b.addEventListener('click', () => {
+      tech = b.dataset.tech!;
+      filters.forEach((f) => f.classList.toggle('on', f === b));
+      apply();
+    }));
+    apply();
+  }
+  document.addEventListener('astro:page-load', init);
+  init();
+</script>

@@ -1,0 +1,141 @@
+---
+import Base from '../layouts/Base.astro';
+import Sea from '../components/Sea.astro';
+import { profile, education, experience, projects, skills, resumePdf } from '../data/profile';
+
+const base = import.meta.env.BASE_URL;
+const linkedinShort = profile.linkedin.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '');
+const githubShort = profile.github.replace(/^https?:\/\//, '');
+const resumeProjects = projects.filter((p) => p.points.length > 0);
+---
+
+<Base title={`Résumé — ${profile.name}`} description={`${profile.name}'s résumé: experience, projects and skills.`}>
+  <header class="page-head wrap">
+    <p class="label">Résumé</p>
+    <h1>Résumé<span class="dot">.</span></h1>
+    <div class="head-actions">
+      <button class="button print" type="button">Save as PDF</button>
+      {resumePdf && <a class="arrow-link" href={`${base}${resumePdf.replace(/^\//, '')}`} download>Download original <span aria-hidden="true">↓</span></a>}
+    </div>
+  </header>
+
+  <div class="wrap">
+    <article class="paper tile">
+      <header class="r-head">
+        <h2>{profile.name}</h2>
+        <p class="r-contact">
+          <a href={`mailto:${profile.email}`}>{profile.email}</a>
+          <span aria-hidden="true">·</span>
+          <a href={profile.linkedin}>{linkedinShort}</a>
+          <span aria-hidden="true">·</span>
+          <a href={profile.github}>{githubShort}</a>
+        </p>
+      </header>
+
+      <section>
+        <h3 class="r-title">Education</h3>
+        <div class="r-row">
+          <div>
+            <p class="r-org">{education.school}</p>
+            <p>{education.degree} · GPA {education.gpa}</p>
+          </div>
+          <div class="r-side">
+            <p>{education.place}</p>
+            <p>{education.dates}</p>
+          </div>
+        </div>
+        <p class="r-note"><strong>Coursework:</strong> {education.coursework.join(', ')}</p>
+      </section>
+
+      <section>
+        <h3 class="r-title">Experience</h3>
+        {experience.map((job) => (
+          <div class="r-entry">
+            <div class="r-row">
+              <div>
+                <p class="r-org">{job.company}</p>
+                <p class="r-role">{job.role}</p>
+              </div>
+              <div class="r-side">
+                <p>{job.place}</p>
+                <p>{job.dates}</p>
+              </div>
+            </div>
+            <ul>{job.points.map((pt) => <li>{pt}</li>)}</ul>
+          </div>
+        ))}
+      </section>
+
+      <section>
+        <h3 class="r-title">Projects</h3>
+        {resumeProjects.map((p) => (
+          <div class="r-entry">
+            <p class="r-org">{p.title} <span class="r-tags">— {p.tags.join(', ')}</span></p>
+            <ul>{p.points.map((pt) => <li>{pt}</li>)}</ul>
+          </div>
+        ))}
+      </section>
+
+      <section>
+        <h3 class="r-title">Technical skills</h3>
+        {skills.map((s) => <p class="r-skill"><strong>{s.label}:</strong> {s.items.join(', ')}</p>)}
+      </section>
+    </article>
+  </div>
+
+  <Sea />
+</Base>
+
+<style>
+  .head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 24px; margin-top: 26px; }
+  .button {
+    font: inherit; font-weight: 600;
+    padding: 11px 22px;
+    border-radius: 999px;
+    border: 0;
+    background: var(--ink);
+    color: var(--bg);
+    cursor: pointer;
+  }
+  .paper { padding: clamp(24px, 5vw, 56px); font-size: 16px; line-height: 1.6; }
+  .r-head { text-align: center; padding-bottom: 18px; }
+  .r-head h2 { font-size: clamp(32px, 5vw, 44px); }
+  .r-contact { margin-top: 8px; display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 10px; color: var(--ink-soft); font-size: 15px; }
+  .r-contact a { text-decoration: none; }
+  .r-contact a:hover { text-decoration: underline; }
+  section { margin-top: 26px; }
+  .r-title { font-size: 15px; font-family: var(--font-body); font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; padding-bottom: 6px; margin-bottom: 12px; border-bottom: 1.5px solid var(--ink); }
+  .r-row { display: flex; justify-content: space-between; gap: 16px; }
+  .r-side { text-align: right; color: var(--ink-soft); flex: none; }
+  .r-org { font-weight: 700; }
+  .r-role { font-style: italic; }
+  .r-tags { font-weight: 500; color: var(--ink-soft); }
+  .r-entry + .r-entry { margin-top: 16px; }
+  .r-entry ul { margin: 6px 0 0; padding-left: 20px; display: grid; gap: 3px; }
+  .r-note, .r-skill { margin-top: 8px; }
+  @media (max-width: 640px) {
+    .r-row { flex-direction: column; gap: 2px; }
+    .r-side { text-align: left; display: flex; gap: 10px; }
+  }
+
+  /* Print just the résumé, on white. */
+  @media print {
+    :global(.nav), :global(#wave), :global(#intro-name), :global(.sea), :global(#shore), .page-head { display: none !important; }
+    :global(body) { background: #fff !important; color: #000; }
+    :global(:root) { --ink: #000; --ink-soft: #333; --rule: #ccc; }
+    .wrap { padding: 0; max-width: none; }
+    .paper { border: 0; padding: 0; background: #fff; font-size: 11pt; }
+    a { color: #000; }
+  }
+</style>
+
+<script>
+  function init() {
+    const btn = document.querySelector<HTMLButtonElement>('.print');
+    if (!btn || btn.dataset.ready) return;
+    btn.dataset.ready = '1';
+    btn.addEventListener('click', () => print());
+  }
+  document.addEventListener('astro:page-load', init);
+  init();
+</script>

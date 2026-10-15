@@ -1,0 +1,154 @@
+---
+import '@fontsource-variable/bricolage-grotesque';
+import '@fontsource-variable/manrope';
+import '../styles/global.css';
+import { ClientRouter } from 'astro:transitions';
+import Wave from '../components/Wave.astro';
+import { profile } from '../data/profile';
+
+interface Props {
+  title?: string;
+  description?: string;
+  wave?: 'full' | 'slim'; // full-height resting wave on the first screen (home), or a slim band
+}
+const {
+  title = `${profile.name} — Computer Science`,
+  description = profile.tagline,
+  wave = 'slim',
+} = Astro.props;
+const home = import.meta.env.BASE_URL;
+const links = [
+  { href: `${home}about/`, label: 'About' },
+  { href: `${home}projects/`, label: 'Projects' },
+  { href: `${home}writing/`, label: 'Writing' },
+  { href: `${home}resume/`, label: 'Résumé' },
+];
+const here = Astro.url.pathname;
+const [first, last] = profile.name.split(' ');
+const initials = `${first[0]}${last?.[0] ?? ''}`;
+---
+
+<!doctype html>
+<html lang="en" transition:animate="none">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" href={`${home}favicon.svg`} type="image/svg+xml" />
+    <!-- Links swap the page content in place instead of loading a whole new page, so the wave keeps
+         running through the wash-over (see Wave.astro). -->
+    <ClientRouter fallback="none" />
+    <script is:inline define:vars={{ home }}>
+      // Runs before the page first paints: pick the saved (or system) theme, and on the first visit
+      // to the home page start with the screen covered by water (the intro).
+      (function () {
+        var root = document.documentElement, theme;
+        try { theme = localStorage.getItem('theme'); } catch (e) {}
+        if (theme !== 'light' && theme !== 'dark') {
+          theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        root.dataset.theme = theme;
+        if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        try {
+          if (location.pathname === home && !sessionStorage.getItem('intro-seen')) {
+            sessionStorage.setItem('intro-seen', '1');
+            root.classList.add('wash-in', 'intro');
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body data-wave={wave}>
+    <div id="intro-name" aria-hidden="true" transition:persist="intro-name">{profile.name}<span class="dot">.</span></div>
+    <Wave />
+    <header class="nav">
+      <div class="nav-inner wrap">
+        <a class="nav-name" href={home} aria-label={`${profile.name}, home`}>
+          <span class="full">{profile.name}</span><span class="short">{initials}<span class="dot">.</span></span>
+        </a>
+        <nav aria-label="Pages">
+          {links.map((l) => (
+            <a href={l.href} aria-current={here.startsWith(l.href) ? 'page' : undefined}>{l.label}</a>
+          ))}
+        </nav>
+        <button class="theme" type="button" aria-label="Switch light or dark mode">
+          <svg class="sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" /><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6" /></svg>
+          <svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.6A8 8 0 0 1 9.4 4a8 8 0 1 0 10.6 10.6z" /></svg>
+        </button>
+      </div>
+    </header>
+    <main class="page">
+      <slot />
+    </main>
+
+    <style>
+      .nav {
+        position: fixed;
+        top: 0; left: 0; right: 0;
+        z-index: 50;
+        background: color-mix(in srgb, var(--bg) 86%, transparent);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border-bottom: 1px solid var(--rule);
+      }
+      .nav-inner { display: flex; align-items: center; gap: 28px; height: 64px; }
+      .nav-name {
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: 19px;
+        letter-spacing: -0.01em;
+        text-decoration: none;
+        margin-right: auto;
+      }
+      .nav-name .short { display: none; }
+      nav { display: flex; gap: 26px; }
+      nav a { font-size: 15px; font-weight: 500; text-decoration: none; opacity: 0.8; padding: 4px 0; border-bottom: 1.5px solid transparent; }
+      nav a:hover { opacity: 1; }
+      nav a[aria-current='page'] { opacity: 1; border-bottom-color: var(--w-teal); }
+      .theme {
+        width: 38px; height: 38px;
+        display: grid; place-items: center;
+        border-radius: 10px;
+        border: 1px solid var(--rule);
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+      }
+      .theme svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+      .theme .moon { display: none; }
+      :global(html[data-theme='dark']) .theme .sun { display: none; }
+      :global(html[data-theme='dark']) .theme .moon { display: block; }
+      @media (max-width: 640px) {
+        .nav-name .full { display: none; }
+        .nav-name .short { display: inline; }
+        .nav-inner { gap: 14px; height: 56px; }
+        nav { gap: 14px; }
+        nav a { font-size: 14px; }
+        .theme { width: 34px; height: 34px; }
+      }
+    </style>
+
+    <script>
+      const root = document.documentElement;
+      const savedTheme = () => {
+        let t: string | null = null;
+        try { t = localStorage.getItem('theme'); } catch {}
+        return t === 'light' || t === 'dark' ? t : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      };
+      // A page swap replaces <html>'s attributes with the new page's, so put the theme back.
+      document.addEventListener('astro:after-swap', () => { root.dataset.theme = savedTheme(); });
+      // The header is part of each new page, so wire up its theme button every time.
+      document.addEventListener('astro:page-load', () => {
+        const btn = document.querySelector<HTMLButtonElement>('.theme');
+        if (!btn || btn.dataset.ready) return;
+        btn.dataset.ready = '1';
+        btn.addEventListener('click', () => {
+          const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+          root.dataset.theme = next;
+          try { localStorage.setItem('theme', next); } catch {}
+        });
+      });
+    </script>
+  </body>
+</html>
