@@ -1,0 +1,91 @@
+---
+// The bottom of every page: the wave arrives at #shore, then everything after it sits on the
+// water. Pages put their own cards in the slot; the contact card and footer are always last.
+import { profile } from '../data/profile';
+
+interface Props {
+  replay?: boolean; // show "Replay the intro" in the footer
+  gap?: boolean;    // leave cream space above the water so the last content isn't under the foam
+}
+const { replay = false, gap = true } = Astro.props;
+---
+
+{gap && <div class="shore-gap" aria-hidden="true"></div>}
+<div id="shore" aria-hidden="true"></div>
+<div class="sea">
+  <div class="sea-inner wrap">
+    <slot />
+
+    <section class="card card-strong contact" id="contact">
+      <p class="label">Contact</p>
+      <h2>Let's connect<span class="dot">.</span></h2>
+      <p class="contact-text">Have a question, an opportunity, or an interesting idea? I'd love to hear from you.</p>
+      <div class="email-row">
+        <a class="contact-email" href={`mailto:${profile.email}`}>{profile.email}</a>
+        <button class="copy" type="button" data-email={profile.email}>Copy email</button>
+      </div>
+      <div class="links">
+        <a class="arrow-link" href={profile.linkedin} target="_blank" rel="noopener">LinkedIn <span aria-hidden="true">↗</span></a>
+        <a class="arrow-link" href={profile.github} target="_blank" rel="noopener">GitHub <span aria-hidden="true">↗</span></a>
+        <a class="arrow-link" href={`${import.meta.env.BASE_URL}resume/`}>Résumé <span aria-hidden="true">→</span></a>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <p>© {new Date().getFullYear()} {profile.name}</p>
+      <div class="footer-links">
+        {replay && <button class="replay" type="button">Replay the intro</button>}
+        <a class="arrow-link" href="#">Back to top <span aria-hidden="true">↑</span></a>
+      </div>
+    </footer>
+  </div>
+</div>
+
+<style>
+  .shore-gap { height: 240px; }
+  .contact h2 { font-size: clamp(40px, 7vw, 72px); margin-top: 12px; }
+  .contact .dot { color: var(--w-teal); }
+  .contact-text { margin-top: 16px; max-width: 30em; color: var(--ink-soft); font-size: 18px; }
+  .email-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; margin-top: 26px; }
+  .contact-email {
+    font-family: var(--font-display);
+    font-size: clamp(21px, 3.6vw, 34px);
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 7px;
+    text-decoration-thickness: 2px;
+    overflow-wrap: anywhere;
+  }
+  .copy, .replay {
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    color: inherit;
+    background: transparent;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    padding: 6px 14px;
+    cursor: pointer;
+  }
+  .links { display: flex; flex-wrap: wrap; gap: 12px 26px; margin-top: 26px; }
+  .footer { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px; padding: 28px 4px 44px; font-size: 15px; }
+  .footer-links { display: flex; align-items: center; gap: 22px; }
+  .replay { --rule: color-mix(in srgb, var(--sea-text) 40%, transparent); }
+</style>
+
+<script>
+  const copy = document.querySelector<HTMLButtonElement>('.copy');
+  copy?.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(copy.dataset.email!);
+      copy.textContent = 'Copied';
+    } catch {
+      copy.textContent = "Couldn't copy";
+    }
+    setTimeout(() => (copy.textContent = 'Copy email'), 1600);
+  });
+  document.querySelector('.replay')?.addEventListener('click', () => {
+    scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
+    document.dispatchEvent(new Event('wave:intro'));
+  });
+</script>

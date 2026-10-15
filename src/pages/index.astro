@@ -1,0 +1,314 @@
+---
+import { getCollection } from 'astro:content';
+import Base from '../layouts/Base.astro';
+import Sea from '../components/Sea.astro';
+import { profile, glance, now, experience, projects } from '../data/profile';
+import { getRepos } from '../data/github';
+
+const posts = (await getCollection('writing', ({ data }) => !data.draft))
+  .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf())
+  .slice(0, 3);
+const repos = (await getRepos()).filter((r) => r.name !== `${profile.githubUser}.github.io`).slice(0, 3);
+const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+const base = import.meta.env.BASE_URL;
+const [first, last] = profile.name.split(' ');
+const featured = projects.slice(0, 4);
+const tabs = [
+  { id: 'experience', label: 'Experience' },
+  { id: 'projects', label: 'Projects' },
+  { id: 'writing', label: 'Writing' },
+  { id: 'now', label: 'Now' },
+  { id: 'contact', label: 'Contact' },
+];
+---
+
+<Base wave="full">
+  <!-- The first screen: just you, on cream. -->
+  <section class="hero wrap" id="top">
+    <p class="label">{profile.eyebrow}</p>
+    <h1 class="name">{first}<br />{last}<span class="dot">.</span></h1>
+    <p class="tagline">{profile.tagline}</p>
+    <p class="intro">{profile.intro}</p>
+    <div class="actions">
+      <a class="button" href="#experience">See my work <span aria-hidden="true">↓</span></a>
+      <a class="arrow-link" href={profile.linkedin} target="_blank" rel="noopener">LinkedIn <span aria-hidden="true">↗</span></a>
+      <a class="arrow-link" href={profile.github} target="_blank" rel="noopener">GitHub <span aria-hidden="true">↗</span></a>
+      <a class="arrow-link" href={`mailto:${profile.email}`}>Email <span aria-hidden="true">↗</span></a>
+    </div>
+  </section>
+
+  <!-- Still on the beach: a few highlights before the water arrives. -->
+  <section class="glance wrap" aria-labelledby="glance-title">
+    <p class="label">At a glance</p>
+    <h2 id="glance-title">A few things I'm proud of<span class="dot">.</span></h2>
+    <ul class="stats">
+      {glance.map((g) => (
+        <li class="tile">
+          <p class="stat-value">{g.value}</p>
+          <p class="stat-label">{g.label}</p>
+        </li>
+      ))}
+    </ul>
+    <a class="arrow-link more" href={`${base}about/`}>More about me <span aria-hidden="true">→</span></a>
+  </section>
+
+  <!-- Underwater: panels you scroll through. -->
+  <Sea replay gap={false}>
+    <nav class="tabs" aria-label="Sections">
+      {tabs.map((t) => <a href={`#${t.id}`} data-tab={t.id}>{t.label}</a>)}
+    </nav>
+
+    <section class="card" id="experience">
+      <div class="card-head">
+        <div>
+          <p class="label">Experience</p>
+          <h2>Where I've been</h2>
+        </div>
+        <a class="arrow-link" href={`${base}resume/`}>Full résumé <span aria-hidden="true">→</span></a>
+      </div>
+      <ol class="jobs">
+        {experience.map((job) => (
+          <li>
+            <span class="job-mark" aria-hidden="true">{job.company[0]}</span>
+            <div class="job-main">
+              <h3>{job.company}</h3>
+              <p class="job-role">{job.role}</p>
+              <p class="job-highlight">{job.highlight}</p>
+            </div>
+            <p class="job-dates">{job.dates}</p>
+          </li>
+        ))}
+      </ol>
+    </section>
+
+    <section class="card" id="projects">
+      <div class="card-head">
+        <div>
+          <p class="label">Projects</p>
+          <h2>Selected work</h2>
+        </div>
+        <a class="arrow-link" href={`${base}projects/`}>All projects <span aria-hidden="true">→</span></a>
+      </div>
+      <ul class="project-grid">
+        {featured.map((p, i) => (
+          <li>
+            <a class="project" href={`${base}projects/#${p.slug}`}>
+              <span class="project-num">{String(i + 1).padStart(2, '0')}</span>
+              <h3>{p.title}</h3>
+              <p>{p.summary}</p>
+              <ul class="chips">{p.tags.slice(0, 4).map((t) => <li>{t}</li>)}</ul>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
+
+    <section class="card" id="writing">
+      <div class="card-head">
+        <div>
+          <p class="label">Writing</p>
+          <h2>Notes and posts</h2>
+        </div>
+        <a class="arrow-link" href={`${base}writing/`}>All writing <span aria-hidden="true">→</span></a>
+      </div>
+      <ul class="posts">
+        {posts.map((post) => (
+          <li>
+            <a href={`${base}writing/${post.id}/`}>
+              <span class="post-date">{fmt(post.data.date)}</span>
+              <span class="post-text">
+                <span class="post-title">{post.data.title}</span>
+                <span class="post-summary">{post.data.summary}</span>
+              </span>
+              <span class="post-arrow" aria-hidden="true">→</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
+
+    <section class="card card-mint" id="now">
+      <div class="card-head">
+        <div>
+          <p class="label">Now</p>
+          <h2>What I'm up to</h2>
+        </div>
+      </div>
+      <dl class="now">
+        {now.map((n) => (
+          <div>
+            <dt class="label">{n.label}</dt>
+            <dd>{n.value}</dd>
+          </div>
+        ))}
+      </dl>
+      {repos.length > 0 && (
+        <div class="repos">
+          <p class="label">Recently on GitHub</p>
+          <ul>
+            {repos.map((r) => (
+              <li>
+                <a href={r.url} target="_blank" rel="noopener">
+                  <span class="repo-name">{r.name} <span aria-hidden="true">↗</span></span>
+                  <span class="repo-meta">{[r.language, `updated ${fmt(r.updated)}`].filter(Boolean).join(' · ')}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  </Sea>
+</Base>
+
+<style>
+  /* ---------- first screen ---------- */
+  /* Tall enough that, on the first screen, the content sits just above the full resting wave
+     and the next section starts hidden behind it, without leaving a big gap once the wave sinks. */
+  .hero {
+    min-height: calc(100svh - var(--wave-rest) + 70px);
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding-top: 110px;
+    padding-bottom: 70px;
+  }
+  .name {
+    font-size: clamp(64px, min(14vw, 19vh), 168px);
+    font-weight: 700;
+    line-height: 0.92;
+    letter-spacing: -0.045em;
+    margin: 16px 0 clamp(20px, 4vh, 34px);
+  }
+  .tagline { font-family: var(--font-display); font-size: clamp(22px, 3vw, 30px); font-weight: 500; line-height: 1.3; max-width: 22em; }
+  .intro { margin-top: 14px; max-width: 34em; color: var(--ink-soft); }
+  .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 26px; margin-top: clamp(22px, 4vh, 34px); }
+  .button {
+    display: inline-flex; gap: 10px; align-items: center;
+    padding: 12px 22px;
+    border-radius: 999px;
+    background: var(--ink);
+    color: var(--bg);
+    font-weight: 600;
+    text-decoration: none;
+    transition: transform 0.2s;
+  }
+  .button:hover { transform: translateY(-2px); }
+
+  /* ---------- the beach ---------- */
+  /* Bottom padding so the highlights have fully risen above the water before the dive starts. */
+  .glance { padding-top: 64px; padding-bottom: 300px; }
+  .glance h2 { font-size: clamp(36px, 6vw, 60px); margin: 12px 0 34px; }
+  .stats { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+  .stat-value { font-family: var(--font-display); font-size: clamp(44px, 6vw, 64px); font-weight: 700; letter-spacing: -0.04em; line-height: 1; }
+  .stat-label { margin-top: 12px; color: var(--ink-soft); font-size: 15px; line-height: 1.55; }
+  .more { margin-top: 28px; }
+
+  /* ---------- section tabs ---------- */
+  .tabs {
+    position: sticky;
+    top: 78px;
+    z-index: 5;
+    justify-self: center;
+    display: flex;
+    gap: 4px;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding: 6px;
+    border-radius: 999px;
+    background: var(--card);
+    color: var(--ink);
+    box-shadow: var(--card-shadow);
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs a { flex: none; padding: 8px 18px; border-radius: 999px; font-size: 15px; font-weight: 600; text-decoration: none; transition: background-color 0.25s, color 0.25s; }
+  .tabs a:hover { background: var(--rule); }
+  .tabs a.active { background: var(--ink); color: var(--card); }
+
+  /* ---------- experience ---------- */
+  .jobs { list-style: none; margin: 0; padding: 0; }
+  .jobs li { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 20px; align-items: start; padding: 22px 0; border-top: 1px solid var(--rule); }
+  .job-mark {
+    width: 52px; height: 52px;
+    display: grid; place-items: center;
+    border-radius: 14px;
+    background: var(--card-mint);
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 22px;
+  }
+  .job-main h3 { font-size: 23px; }
+  .job-role { margin-top: 4px; font-weight: 600; }
+  .job-highlight { margin-top: 4px; color: var(--ink-soft); font-size: 16px; }
+  .job-dates { font-size: 14px; font-weight: 600; color: var(--ink-soft); white-space: nowrap; padding-top: 4px; }
+
+  /* ---------- projects ---------- */
+  .project-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .project {
+    display: flex; flex-direction: column; gap: 10px;
+    height: 100%;
+    padding: 26px;
+    border-radius: 20px;
+    border: 1px solid var(--rule);
+    text-decoration: none;
+    transition: transform 0.25s, border-color 0.25s, background-color 0.25s;
+  }
+  .project:hover { transform: translateY(-3px); border-color: var(--w-teal); background: color-mix(in srgb, var(--card-mint) 55%, transparent); }
+  .project-num { font-family: var(--font-display); font-weight: 600; font-size: 15px; color: var(--ink-soft); }
+  .project h3 { font-size: 25px; }
+  .project p { color: var(--ink-soft); font-size: 15.5px; line-height: 1.6; flex: 1; }
+  .project .chips { margin-top: 6px; }
+
+  /* ---------- writing ---------- */
+  .posts { list-style: none; margin: 0; padding: 0; }
+  .posts li { border-top: 1px solid var(--rule); }
+  .posts a { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; gap: 20px; align-items: baseline; padding: 20px 0; text-decoration: none; }
+  .post-date { font-size: 14px; font-weight: 600; color: var(--ink-soft); }
+  .post-text { display: grid; gap: 4px; }
+  .post-title { font-family: var(--font-display); font-size: 23px; font-weight: 600; }
+  .post-summary { color: var(--ink-soft); font-size: 15.5px; }
+  .post-arrow { font-size: 22px; transition: transform 0.2s; }
+  .posts a:hover .post-arrow { transform: translateX(6px); }
+  .posts a:hover .post-title { text-decoration: underline; text-underline-offset: 5px; text-decoration-thickness: 1.5px; }
+
+  /* ---------- now ---------- */
+  .now { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 32px; }
+  .now div { padding: 16px 0; border-top: 1px solid var(--rule); }
+  .now dd { margin: 4px 0 0; font-size: 18px; font-weight: 600; }
+  .repos { margin-top: 34px; }
+  .repos ul { list-style: none; margin: 12px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .repos a { display: grid; gap: 4px; padding: 16px 18px; border-radius: 16px; background: var(--card); text-decoration: none; transition: transform 0.2s; }
+  .repos a:hover { transform: translateY(-2px); }
+  .repo-name { font-weight: 700; overflow-wrap: anywhere; }
+  .repo-meta { font-size: 13.5px; color: var(--ink-soft); }
+
+  @media (max-width: 760px) {
+    .project-grid, .now, .repos ul { grid-template-columns: minmax(0, 1fr); }
+    .jobs li { grid-template-columns: 44px minmax(0, 1fr); }
+    .job-mark { width: 44px; height: 44px; font-size: 19px; border-radius: 12px; }
+    .job-dates { grid-column: 2; padding-top: 0; }
+    .posts a { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 16px; }
+    .post-date { grid-column: 1 / -1; }
+  }
+</style>
+
+<script>
+  // Highlight the tab for the panel you're looking at.
+  const tabs = new Map([...document.querySelectorAll<HTMLAnchorElement>('.tabs a')].map((a) => [a.dataset.tab!, a]));
+  const seen = new Map<string, boolean>();
+  const io = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((e) => seen.set(e.target.id, e.isIntersecting));
+      const current = [...tabs.keys()].find((id) => seen.get(id));
+      tabs.forEach((a, id) => a.classList.toggle('active', id === current));
+      // On narrow screens the tab bar scrolls sideways; keep the active tab in view.
+      const active = tabs.get(current ?? ''), bar = active?.parentElement;
+      if (active && bar && bar.scrollWidth > bar.clientWidth) {
+        bar.scrollTo({ left: active.offsetLeft - (bar.clientWidth - active.offsetWidth) / 2, behavior: 'smooth' });
+      }
+    },
+    { rootMargin: '-45% 0px -50% 0px' },
+  );
+  tabs.forEach((_, id) => { const el = document.getElementById(id); if (el) io.observe(el); });
+</script>

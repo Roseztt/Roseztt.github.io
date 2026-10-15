@@ -1,0 +1,186 @@
+/* ---------- colors ---------- */
+:root {
+  --bg: #F9F6EA;
+  --ink: #1E3A4F;
+  --ink-soft: #4C6B76;
+  --rule: rgba(30, 58, 79, 0.14);
+  --accent: #237A70;
+  --tile: #FDFBF4;
+
+  /* the wave */
+  --w-pale: #E4EEEE;
+  --w-mint: #D3E7E5;
+  --w-teal: #62BFB0;
+  --w-edge: #4A6C94;
+  --w-fleck: #F4F7F2;
+  --w-shadow: #23465F;
+  --w-shadow-opacity: 0.24;
+
+  /* the sea gets deeper as you scroll down */
+  --sea-2: #47A6A3;
+  --sea-3: #2B6F82;
+  --sea-text: #F6F3E6;
+
+  /* cards floating on the sea */
+  --card: #FBF8EF;
+  --card-mint: #E3F0ED;
+  --card-strong: #1E3A4F;
+  --card-strong-ink: #F9F6EA;
+  --card-shadow: 0 30px 60px -28px rgba(10, 40, 55, 0.55);
+
+  --font-display: 'Bricolage Grotesque Variable', 'Bricolage Grotesque', system-ui, sans-serif;
+  --font-body: 'Manrope Variable', 'Manrope', system-ui, sans-serif;
+  --page: 1080px;
+  --gutter: 24px;
+  color-scheme: light;
+}
+:root[data-theme='dark'] {
+  --bg: #0E1A22;
+  --ink: #EEF1E8;
+  --ink-soft: #A9BEC2;
+  --rule: rgba(238, 241, 232, 0.13);
+  --accent: #7FD3C6;
+  --tile: #12212A;
+
+  --w-pale: #1C3440;
+  --w-mint: #22414C;
+  --w-teal: #2A7479;
+  --w-edge: #0A2230;
+  --w-fleck: #CFE3DF;
+  --w-shadow: #000000;
+  --w-shadow-opacity: 0.4;
+
+  --sea-2: #1F5C66;
+  --sea-3: #12323F;
+  --sea-text: #EEF1E8;
+
+  --card: #13232C;
+  --card-mint: #183540;
+  --card-strong: #EEF1E8;
+  --card-strong-ink: #12232C;
+  --card-shadow: 0 30px 60px -28px rgba(0, 0, 0, 0.7);
+  color-scheme: dark;
+}
+
+/* ---------- base ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+html { background: var(--bg); scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 17px;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.3s, color 0.3s;
+}
+h1, h2, h3 { font-family: var(--font-display); font-weight: 650; line-height: 1.05; letter-spacing: -0.02em; margin: 0; }
+p { margin: 0; }
+a { color: inherit; }
+::selection { background: var(--w-teal); color: #102C3A; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+
+/* The cream page sits behind the wave (z-index 1); the sea and its cards sit in front of it. */
+.page { position: relative; }
+:root { --wave-rest: 230px; } /* roughly how tall the resting wave is; keep content clear of it */
+.wrap { max-width: var(--page); margin: 0 auto; padding: 0 var(--gutter); }
+
+/* Arriving through a wash-over (or the first-visit intro): cover the page with water until the
+   wave takes over. */
+html.wash-in::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: var(--w-teal);
+  z-index: 100;
+}
+#intro-name {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(52px, 11vw, 132px);
+  letter-spacing: -0.04em;
+  color: #F9F6EA;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.45s ease;
+}
+html.intro #intro-name { opacity: 1; }
+
+/* ---------- small pieces ---------- */
+.label {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.arrow-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  font-weight: 600;
+  border-bottom: 1.5px solid transparent;
+  transition: border-color 0.2s;
+}
+.arrow-link:hover { border-bottom-color: currentColor; }
+.chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.chips li { font-size: 13px; font-weight: 600; padding: 4px 12px; border: 1px solid var(--rule); border-radius: 999px; }
+.dot { color: var(--w-teal); }
+
+/* A bordered block on the cream page. */
+.tile {
+  background: var(--tile);
+  border: 1px solid var(--rule);
+  border-radius: 22px;
+  padding: clamp(22px, 3.5vw, 36px);
+}
+
+/* Page heading for About / Projects / Writing / Résumé. */
+.page-head { padding-top: clamp(120px, 18vh, 170px); padding-bottom: 48px; }
+.page-head h1 { font-size: clamp(52px, 9vw, 104px); font-weight: 700; letter-spacing: -0.04em; margin-top: 14px; }
+.page-head .lead { margin-top: 18px; max-width: 36em; font-size: 19px; color: var(--ink-soft); }
+
+/* ---------- the sea ---------- */
+.sea {
+  position: relative;
+  z-index: 2;
+  color: var(--sea-text);
+  padding-top: 180px;
+  /* see-through at the top so the animated foam shows, then the water gets deeper */
+  background: linear-gradient(to bottom, transparent 0, transparent 260px, var(--w-teal) 260px, var(--sea-2) 55%, var(--sea-3) 100%);
+}
+.sea-inner { display: grid; gap: 28px; }
+
+/* Cards floating on the water. */
+.card {
+  background: var(--card);
+  color: var(--ink);
+  border-radius: 28px;
+  padding: clamp(26px, 4.5vw, 52px);
+  box-shadow: var(--card-shadow);
+  scroll-margin-top: 140px;
+}
+.card-mint { background: var(--card-mint); }
+.card-strong {
+  --ink: var(--card-strong-ink);
+  --ink-soft: color-mix(in srgb, var(--card-strong-ink) 72%, transparent);
+  --rule: color-mix(in srgb, var(--card-strong-ink) 22%, transparent);
+  --accent: var(--card-strong-ink);
+  background: var(--card-strong);
+}
+.card-head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 24px; margin-bottom: 30px; }
+.card-head h2 { font-size: clamp(32px, 5vw, 50px); margin-top: 10px; }
+
+@media (max-width: 640px) {
+  :root { --gutter: 16px; }
+  body { font-size: 16px; }
+  .card { border-radius: 22px; }
+}

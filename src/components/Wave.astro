@@ -1,0 +1,358 @@
+---
+// The animated wave. It always rests at the bottom of the screen, in front of the cream page.
+// It's full height on the home page's first screen; once you scroll (or on inner pages, which set
+// data-wave="slim" on <body>) it sinks to a slim band so it barely covers the content. When the
+// element with id="shore" (the top of the <Sea>) comes up, the water rises with it and the page
+// continues underwater, with the sea's cards in front of the wave.
+// Clicking a link to another page washes the water over the screen first, and on the first
+// visit to the home page the water drains away to reveal the page (the intro).
+---
+
+<svg id="wave" aria-hidden="true" focusable="false">
+  <defs>
+    <!-- "goo": blur, then sharpen the alpha, so overlapping shapes melt into one smooth blob -->
+    <filter id="goo" class="wave-filter" filterUnits="userSpaceOnUse">
+      <feGaussianBlur stdDeviation="14" />
+      <feColorMatrix values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 46 -20" />
+    </filter>
+    <filter id="goo-small" class="wave-filter" filterUnits="userSpaceOnUse">
+      <feGaussianBlur stdDeviation="5" />
+      <feColorMatrix values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 30 -12" />
+    </filter>
+    <!-- goo plus a soft shadow cast up onto the page behind the wave -->
+    <filter id="goo-shadow" class="wave-filter" filterUnits="userSpaceOnUse">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="14" result="blur" />
+      <feColorMatrix in="blur" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 46 -20" result="shape" />
+      <feGaussianBlur in="shape" stdDeviation="14" result="soft" />
+      <feOffset in="soft" dy="-9" result="moved" />
+      <feFlood class="wave-flood" />
+      <feComposite in2="moved" operator="in" result="shadow" />
+      <feMerge><feMergeNode in="shadow" /><feMergeNode in="shape" /></feMerge>
+    </filter>
+  </defs>
+  <g id="w-pale" class="w-pale" filter="url(#goo-shadow)"></g>
+  <g id="w-mint" class="w-mint" filter="url(#goo)"></g>
+  <g id="w-isle" class="w-teal" filter="url(#goo-small)"></g>
+  <g id="w-edge" class="w-edge" filter="url(#goo)"></g>
+  <g id="w-teal" class="w-teal" filter="url(#goo)"></g>
+  <g id="w-chan-shadow" class="w-edge" filter="url(#goo)"></g>
+  <g id="w-chan" class="w-pale" filter="url(#goo)"></g>
+  <g id="w-fleck" class="w-fleck" filter="url(#goo-small)"></g>
+</svg>
+
+<style>
+  #wave {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 1;
+    pointer-events: none;
+  }
+  #wave.front { z-index: 60; }
+  .w-pale { fill: var(--w-pale); }
+  .w-mint { fill: var(--w-mint); }
+  .w-teal { fill: var(--w-teal); }
+  .w-edge { fill: var(--w-edge); }
+  .w-fleck { fill: var(--w-fleck); }
+  .wave-flood { flood-color: var(--w-shadow); flood-opacity: var(--w-shadow-opacity); }
+</style>
+
+<script>
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.getElementById('wave') as unknown as SVGSVGElement;
+  const root = document.documentElement;
+  const shore = document.getElementById('shore');
+  const slim = document.body.dataset.wave === 'slim';
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const $ = (id: string) => document.getElementById(id)!;
+  const W = () => innerWidth, H = () => innerHeight;
+
+  // ---------- motion settings ----------
+  const SWELL = 7;          // s for one swell to rise and fall
+  const BREATHE = 11;       // s for the whole sea to slowly rise and settle
+  const ORBIT = 7;          // px each foam shape rolls around its spot
+  const OMEGA = (2 * Math.PI) / SWELL;
+  const MARGIN = 220;
+  const SPAN = Math.max(1800, screen.width * 1.1) + 2 * MARGIN;
+  const COVER_MS = 600, DRAIN_MS = 750;
+  const FOAM = 260;           // px of see-through water at the top of the sea, where the foam shows
+
+  let clock = 0, last = performance.now();
+  let wash = 0, swell = 0, shoreTop = 1e5, busy = false;
+  let tealBase = 80, paleBase = 150;
+  // How far the wave sinks below its full resting height while you scroll, leaving a slim band.
+  let sinkMax = 120, sink = 0;
+  const SINK_AFTER = 160; // px of scrolling on the home page before the wave has fully sunk
+
+  // Two slow swells crossing each other, so the surface heaves up and down in place.
+  function bob(x: number, phase: number) {
+    const k = (2 * Math.PI) / Math.max(W() * 0.9, 620);
+    return (11 + swell * 22) * Math.sin(k * x + OMEGA * clock + phase)
+      + (9 + swell * 10) * Math.sin(k * 0.7 * x - OMEGA * 0.8 * clock + phase * 1.3 + 2)
+      + 26 * (x / W())
+      + 5 * Math.sin((clock * 2 * Math.PI) / BREATHE);
+  }
+
+  // How far the water has risen at x (0 at rest, 1 = screen covered). The front rises as a
+  // rounded arch, and a soft crest bulges out ahead of the water as it climbs.
+  const ARCH = 0.55, PEAK = 0.4;
+  const smoothstep = (v: number) => { v = Math.max(0, Math.min(1, v)); return v * v * (3 - 2 * v); };
+  function lift(x: number, ahead = 0) {
+    if (wash <= 0) return 0;
+    const w = W(), p = Math.min(1, wash * (1 + ahead));
+    const lag = ARCH * ((x / w - PEAK) / (1 - PEAK)) ** 2;
+    const rise = (H() + 160) * smoothstep(p * (1 + ARCH) - lag);
+    const cx = w * (PEAK + (p - 0.5) * 0.6);
+    return rise + (70 + H() * 0.1) * Math.sin(Math.PI * p) * Math.exp(-(((x - cx) / (w * 0.32)) ** 2));
+  }
+  // Sunk to a slim band until the shore scrolls up, then the waterline rides just above the
+  // shore, moving exactly with the page.
+  const shift = () => Math.max(H() - shoreTop, -sink);
+  const tealTop = (x: number) => tealBase + bob(x, 0) + lift(x) + shift();
+  const paleTop = (x: number) => paleBase + bob(x, 0.6) + lift(x, 0.22) + shift();
+
+  // ---------- shapes ----------
+  type Shape = { x0: number; rx: number; ry: number; depth: number; rot: number; el: SVGElement };
+  function rand(seed: number) { let s = seed; return () => (s = (s * 9301 + 49297) % 233280) / 233280; }
+  function el(tag: string, parent: Element, attrs: Record<string, string | number> = {}) {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, String(attrs[k]));
+    parent.appendChild(e);
+    return e;
+  }
+  type RowOpts = { gap: number; rx: number[]; ry: number[]; rot?: number[]; keep?: number };
+  // A row of ellipses spaced along the width.
+  function row(parent: Element, seed: number, o: RowOpts): Shape[] {
+    const r = rand(seed), n = Math.ceil(SPAN / o.gap), list: Shape[] = [];
+    for (let i = 0; i < n; i++) {
+      const s = {
+        x0: i * o.gap + (r() - 0.5) * o.gap * 0.6,
+        rx: o.rx[0] + r() * (o.rx[1] - o.rx[0]),
+        ry: o.ry[0] + r() * (o.ry[1] - o.ry[0]),
+        depth: 0,
+        rot: o.rot ? o.rot[0] + r() * (o.rot[1] - o.rot[0]) : 0,
+      } as Shape;
+      if (r() < (o.keep ?? 1)) list.push(s);
+    }
+    list.forEach((s) => (s.el = el('ellipse', parent, { rx: s.rx.toFixed(1), ry: s.ry.toFixed(1) })));
+    return list;
+  }
+  function copies(list: Shape[], parent: Element, every: number, make: (p: Element, s: Shape) => SVGElement) {
+    return list.filter((_, i) => i % every === 0).map((s) => ({ ...s, el: make(parent, s) }));
+  }
+  const ellipse = (p: Element, s: Shape) => el('ellipse', p, { rx: s.rx.toFixed(1), ry: s.ry.toFixed(1) });
+
+  // A tapered streak: a chain of circles along a gentle curve, thick in the middle and thin at the
+  // ends; the goo filter melts them into one comet-like shape. Streaks sit a fixed distance below
+  // the surface, so the foam stays a band along the top and the deep water stays plain.
+  type Streak = Shape & { len: number; rad: number; bend: number };
+  type StreakOpts = { gap: number; len: number[]; r: number[]; depth: number[]; rot: number[]; bend: number; rows?: number; rowGap?: number; keep?: number };
+  function chain(parent: Element, s: Streak) {
+    const g = el('g', parent), k = Math.max(4, Math.round(s.len / (s.rad * 0.9)));
+    for (let j = 0; j < k; j++) {
+      const t = j / (k - 1);
+      el('circle', g, {
+        cx: (s.len * (t - 0.5)).toFixed(1),
+        cy: (s.bend * Math.sin(Math.PI * t)).toFixed(1),
+        r: (s.rad * (0.35 + 0.65 * Math.sin(Math.PI * (0.08 + 0.84 * t)))).toFixed(1),
+      });
+    }
+    return g;
+  }
+  function streaks(parent: Element, seed: number, o: StreakOpts): Streak[] {
+    const r = rand(seed), n = Math.ceil(SPAN / o.gap), list: Streak[] = [];
+    for (let rowI = 0; rowI < (o.rows ?? 1); rowI++) for (let i = 0; i < n; i++) {
+      const s = {
+        x0: i * o.gap + (r() - 0.5) * o.gap * 0.7 + rowI * o.gap * 0.45,
+        depth: rowI * (o.rowGap ?? 0) + o.depth[0] + r() * (o.depth[1] - o.depth[0]),
+        len: o.len[0] + r() * (o.len[1] - o.len[0]),
+        rad: o.r[0] + r() * (o.r[1] - o.r[0]),
+        rot: o.rot[0] + r() * (o.rot[1] - o.rot[0]),
+        bend: (r() - 0.5) * 2 * o.bend,
+      } as Streak;
+      if (r() < (o.keep ?? 1)) list.push(s);
+    }
+    list.forEach((s) => (s.el = chain(parent, s)));
+    return list;
+  }
+
+  // Each shape stays near its spot and rolls in a small loop with the swell; `layer` offsets the
+  // loop's timing per layer so the layers don't move in lockstep.
+  const orbitAt = (s: Shape, layer: number) => OMEGA * clock + s.x0 * 0.011 + layer * 2;
+  const xOf = (s: Shape, layer: number) => (s.x0 % SPAN) - MARGIN + ORBIT * Math.cos(orbitAt(s, layer));
+  function put(s: Shape, x: number, y: number, layer: number) {
+    y += ORBIT * 0.6 * Math.sin(orbitAt(s, layer));
+    s.el.setAttribute('transform', `translate(${x.toFixed(1)} ${y.toFixed(1)}) rotate(${s.rot.toFixed(1)})`);
+  }
+
+  // Solid body under each blob layer, so the goo has something to merge into.
+  const paleBody = el('path', $('w-pale'));
+  const edgeBody = el('path', $('w-edge'));
+  const tealBody = el('path', $('w-teal'));
+  function body(path: SVGElement, topFn: (x: number) => number, dx = 0, dy = 0) {
+    const w = W(), h = H();
+    let d = `M${-60 + dx} ${h + 300}`;
+    for (let x = -60; x <= w + 60; x += 20) d += ` L${x + dx} ${(h - topFn(x) + 40 + dy).toFixed(1)}`;
+    path.setAttribute('d', d + ` L${w + 60 + dx} ${h + 300} Z`);
+  }
+
+  const paleHumps = row($('w-pale'), 3, { gap: 95, rx: [55, 95], ry: [45, 75] });
+  const mint = row($('w-mint'), 5, { gap: 170, rx: [40, 85], ry: [12, 22], rot: [-14, -4], keep: 0.8 });
+  const isles = row($('w-isle'), 9, { gap: 210, rx: [12, 26], ry: [7, 13], rot: [-25, 10], keep: 0.7 });
+  const tealHumps = row($('w-teal'), 13, { gap: 120, rx: [55, 100], ry: [40, 70] });
+  const edgeHumps = copies(tealHumps, $('w-edge'), 3, ellipse);
+  const bays = streaks($('w-chan'), 31, { gap: 260, len: [100, 200], r: [13, 22], depth: [12, 28], rot: [-14, -2], bend: 18 });
+  const chans = streaks($('w-chan'), 17, { gap: 170, len: [60, 160], r: [8, 14], depth: [45, 75], rows: 2, rowGap: 85, rot: [-16, -3], bend: 12 });
+  const chanShadows = copies(chans, $('w-chan-shadow'), 2, (p, s) => chain(p, s as Streak));
+  const flecks = streaks($('w-fleck'), 21, { gap: 130, len: [22, 55], r: [3.5, 6], depth: [30, 70], rows: 2, rowGap: 70, rot: [-20, -4], bend: 4, keep: 0.8 });
+
+  function layout() {
+    tealBase = Math.max(45, Math.min(85, H() * 0.1));
+    paleBase = tealBase + Math.max(42, Math.min(75, H() * 0.09));
+    sinkMax = paleBase - 25;
+    filterTop = NaN; // force the blur area to be recalculated
+  }
+
+  // The blur filters are the expensive part, and their cost grows with the area they cover, so
+  // limit them to the strip of screen the wave actually occupies (plus room for the blur and the
+  // shadow), instead of the whole screen.
+  const filters = [...svg.querySelectorAll('.wave-filter')];
+  let filterTop = NaN;
+  function fitFilters() {
+    const w = W(), h = H();
+    let top = 0;
+    for (let i = 0; i <= 16; i++) top = Math.max(top, paleTop((i / 16) * w));
+    // Above the foam's highest point: its round humps, then the blur and the upward shadow.
+    const y = Math.max(-60, Math.floor(h - top - 150));
+    if (Math.abs(y - filterTop) < 8) return;
+    filterTop = y;
+    filters.forEach((f) => {
+      f.setAttribute('x', '-60'); f.setAttribute('y', String(y));
+      f.setAttribute('width', String(w + 120)); f.setAttribute('height', String(h + 60 - y));
+    });
+  }
+
+  let pendingDrain = root.classList.contains('wash-in');
+  if (pendingDrain) { wash = 1; svg.classList.add('front'); }
+  const INTRO_HOLD = 900; // ms the name shows on the water before it drains (first visit only)
+
+  // At rest the swell is slow enough that 30 frames a second looks the same as 120, so only
+  // draw every ~33ms then; draw every frame while scrolling, sinking or washing over.
+  const IDLE_MS = 1000 / 30;
+  let lastDraw = -Infinity, lastScroll = NaN;
+
+  function frame(now: number) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    if (!reduce) clock += dt;
+    // No shore on the page: keep the water well below the screen (it still covers for wash-overs).
+    shoreTop = shore ? shore.getBoundingClientRect().top : H() + 4000;
+    // Ease the wave down to its slim band as you scroll, and back up at the top of the home page.
+    const sinkTarget = slim ? sinkMax : sinkMax * Math.min(1, scrollY / SINK_AFTER);
+    sink += (sinkTarget - sink) * Math.min(1, dt * 7);
+
+    // Skip drawing once the foam band has scrolled off the top: the sea's solid background
+    // covers everything below it.
+    const hidden = wash === 0 && shoreTop + FOAM < 0;
+    svg.style.visibility = hidden ? 'hidden' : 'visible';
+
+    const moving = wash > 0 || scrollY !== lastScroll || Math.abs(sinkTarget - sink) > 0.5;
+    lastScroll = scrollY;
+    const due = moving || now - lastDraw >= IDLE_MS - 2;
+
+    if (!hidden && due) {
+      lastDraw = now;
+      const h = H();
+      fitFilters();
+      body(paleBody, paleTop);
+      paleHumps.forEach((s) => { const x = xOf(s, 1); put(s, x, h - paleTop(x) + s.ry * 0.55, 1); });
+      mint.forEach((s) => { const x = xOf(s, 1.05); put(s, x, h - (tealTop(x) + paleTop(x)) / 2 - 6, 1.05); });
+      isles.forEach((s) => { const x = xOf(s, 1.08); put(s, x, h - tealTop(x) - 30 - s.rx * 0.4, 1.08); });
+      body(edgeBody, tealTop, -1, -3);
+      edgeHumps.forEach((s) => { const x = xOf(s, 1.12); put(s, x - 1, h - tealTop(x) + s.ry * 0.6 - 3, 1.12); });
+      body(tealBody, tealTop);
+      tealHumps.forEach((s) => { const x = xOf(s, 1.12); put(s, x, h - tealTop(x) + s.ry * 0.6, 1.12); });
+      bays.forEach((s) => { const x = xOf(s, 1.16); put(s, x, h - tealTop(x) + s.depth, 1.16); });
+      chans.forEach((s) => { const x = xOf(s, 1.2); put(s, x, h - tealTop(x) + s.depth, 1.2); });
+      chanShadows.forEach((s) => { const x = xOf(s, 1.2); put(s, x + 2, h - tealTop(x) + s.depth + 4, 1.2); });
+      flecks.forEach((s) => { const x = xOf(s, 1.28); put(s, x, h - tealTop(x) + s.depth, 1.28); });
+    }
+
+    // Arrived via a wash-over (or the intro): the cover overlay came from the page head; now that
+    // the wave has drawn a covered frame, remove the overlay and drain the water away.
+    if (pendingDrain) {
+      pendingDrain = false;
+      root.classList.remove('wash-in');
+      if (root.classList.contains('intro')) {
+        setTimeout(() => { root.classList.remove('intro'); drain(); }, INTRO_HOLD);
+      } else {
+        drain();
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- wash-over between pages ----------
+  const ease = (x: number) => -(Math.cos(Math.PI * x) - 1) / 2;
+  // Only the middle of the wash is visible: below about 0.14 the water hasn't climbed past its
+  // resting band, and above about 0.76 the screen is already fully covered (the same at every
+  // screen size). Spend most of the animation in that visible range and hop quickly through the
+  // ends, so there's no dead time on a covered screen before or after switching pages.
+  const VIS_LO = 0.14, VIS_HI = 0.76;
+  function visible(e: number) {
+    if (e < 0.08) return (e / 0.08) * VIS_LO;
+    if (e > 0.92) return VIS_HI + ((e - 0.92) / 0.08) * (1 - VIS_HI);
+    return VIS_LO + ((e - 0.08) / 0.84) * (VIS_HI - VIS_LO);
+  }
+  function tween(fn: (e: number, k: number) => void, ms: number) {
+    return new Promise<void>((res) => {
+      const start = performance.now();
+      const step = (n: number) => {
+        const k = Math.min(1, (n - start) / ms);
+        fn(ease(k), k);
+        k < 1 ? requestAnimationFrame(step) : res();
+      };
+      requestAnimationFrame(step);
+    });
+  }
+  function cover() {
+    svg.classList.add('front');
+    return tween((e, k) => { wash = visible(e); swell = Math.sin(k * Math.PI); }, COVER_MS);
+  }
+  async function drain() {
+    svg.classList.add('front');
+    await tween((e, k) => { wash = visible(1 - e); swell = Math.sin(k * Math.PI); }, DRAIN_MS);
+    wash = 0; swell = 0; busy = false;
+    svg.classList.remove('front');
+  }
+
+  document.addEventListener('click', (e) => {
+    const a = (e.target as Element).closest('a');
+    if (!a || reduce || e.defaultPrevented || e.button !== 0) return;
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || a.target === '_blank' || a.hasAttribute('download')) return;
+    const url = new URL(a.href, location.href);
+    if (url.origin !== location.origin || url.pathname === location.pathname) return; // same-page links just scroll
+    e.preventDefault();
+    if (busy) return;
+    busy = true;
+    cover().then(() => {
+      try { sessionStorage.setItem('wash-in', '1'); } catch {}
+      location.href = url.href;
+    });
+  });
+  // "Replay the intro": cover the screen, show the name on the water, then drain again.
+  document.addEventListener('wave:intro', () => {
+    if (busy || reduce) return;
+    busy = true;
+    root.classList.add('intro');
+    cover().then(() => setTimeout(() => { root.classList.remove('intro'); drain(); }, INTRO_HOLD));
+  });
+  // Coming back with the browser's back button can restore this page mid-wash; drain it.
+  addEventListener('pageshow', (e) => { if (e.persisted && wash > 0) drain(); });
+
+  addEventListener('resize', layout);
+  layout();
+  if (slim) sink = sinkMax;
+  requestAnimationFrame(frame);
+</script>
